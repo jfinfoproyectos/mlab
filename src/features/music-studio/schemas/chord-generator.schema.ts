@@ -6,6 +6,7 @@ export const chordInputSchema = z.object({
   key: z.string().optional(),
   scale: z.string().optional(),
   tempo: z.string().optional(),
+  chordCount: z.number().optional(),
 });
 
 export type ChordInput = z.infer<typeof chordInputSchema>;

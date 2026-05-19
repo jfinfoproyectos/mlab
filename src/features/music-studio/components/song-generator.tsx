@@ -25,6 +25,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { 
   Music, 
   Sparkles, 
@@ -35,6 +51,7 @@ import {
   Activity, 
   BookOpen, 
   ChevronRight, 
+  ChevronDown,
   Upload, 
   Download, 
   Save, 
@@ -115,9 +132,82 @@ function migrate1DTo2D(steps: any): boolean[][] {
   // Default empty grid
   return Array(5).fill(null).map(() => Array(16).fill(false));
 }
+// High-Precision Web Worker Timer to prevent background throttling in browsers
+let workerInstance: Worker | null = null;
+const activeWorkerCallbacks: Record<number, () => void> = {};
+let workerTimerIdCounter = 1;
+
+const getWorkerInstance = (): Worker | null => {
+  if (typeof window === "undefined") return null;
+  if (workerInstance) return workerInstance;
+
+  try {
+    const blobCode = `
+      const activeTimers = {};
+      self.onmessage = function(e) {
+        const { action, id, delay } = e.data;
+        if (action === "setTimeout") {
+          activeTimers[id] = setTimeout(() => {
+            self.postMessage({ action: "trigger", id });
+            delete activeTimers[id];
+          }, delay);
+        } else if (action === "clearTimeout") {
+          if (activeTimers[id]) {
+            clearTimeout(activeTimers[id]);
+            delete activeTimers[id];
+          }
+        }
+      };
+    `;
+    const blob = new Blob([blobCode], { type: "application/javascript" });
+    workerInstance = new Worker(URL.createObjectURL(blob));
+    workerInstance.onmessage = (e) => {
+      const { action, id } = e.data;
+      if (action === "trigger") {
+        const cb = activeWorkerCallbacks[id];
+        if (cb) {
+          cb();
+          delete activeWorkerCallbacks[id];
+        }
+      }
+    };
+    return workerInstance;
+  } catch (err) {
+    console.warn("Failed to initialize background Web Worker Timer:", err);
+    return null;
+  }
+};
+
+const workerSetTimeout = (callback: () => void, delay: number): number => {
+  const worker = getWorkerInstance();
+  if (!worker) {
+    return window.setTimeout(callback, delay) as any;
+  }
+  const id = workerTimerIdCounter++;
+  activeWorkerCallbacks[id] = callback;
+  worker.postMessage({ action: "setTimeout", id, delay });
+  return id;
+};
+
+const workerClearTimeout = (id: number | null) => {
+  if (!id) return;
+  const worker = getWorkerInstance();
+  if (!worker) {
+    window.clearTimeout(id);
+    return;
+  }
+  worker.postMessage({ action: "clearTimeout", id });
+  delete activeWorkerCallbacks[id];
+};
 
 export function SongGenerator() {
+  // Alias high-precision Web Worker timers to shadow global setTimeout/clearTimeout in this scope.
+  // This automatically runs all playback and arpeggio scheduling in a non-throttled background thread.
+  const setTimeout = workerSetTimeout as any;
+  const clearTimeout = workerClearTimeout as any;
+
   const [loading, setLoading] = useState(false);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [activeSong, setActiveSong] = useState<SongStructure | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
@@ -345,6 +435,30 @@ export function SongGenerator() {
         clearTimeout(playbackTimerRef.current);
       }
       subTimeoutsRef.current.forEach(clearTimeout);
+
+      // Silenciar cualquier nota MIDI activa al desmontar
+      if (activeOutputPortRef.current) {
+        try {
+          const out = activeOutputPortRef.current;
+          const notesToTurnOff = Array.from(
+            new Set([...activeMidiNotesRef.current, ...previouslyPlayedMidiNotesRef.current])
+          );
+
+          notesToTurnOff.forEach((midiNum) => {
+            for (let ch = 0; ch < 16; ch++) {
+              out.send([0x80 | ch, midiNum, 0x00]);
+            }
+          });
+
+          // Enviar CC All Notes Off y All Sound Off a todos los canales
+          for (let ch = 0; ch < 16; ch++) {
+            out.send([0xB0 | ch, 123, 0]);
+            out.send([0xB0 | ch, 120, 0]);
+          }
+        } catch (e) {
+          console.warn("Error silenciando MIDI en desmontaje:", e);
+        }
+      }
     };
   }, []);
 
@@ -1863,32 +1977,32 @@ export function SongGenerator() {
     setActivePlaybackNotes([]);
     activePlaybackNotesRef.current = [];
 
-    // Send MIDI Note Off for all active output notes (send to all channels for robust cleanup)
-    if (activeOutputPortRef.current && activeMidiNotesRef.current.length > 0) {
+    // Send MIDI Note Off and CC Panic messages to all 16 channels for complete silencing
+    if (activeOutputPortRef.current) {
       try {
         const out = activeOutputPortRef.current;
         triggerMidiActivity();
-        activeMidiNotesRef.current.forEach((midiNum) => {
+
+        // 1. Recopilar todas las notas activas o previamente reproducidas y enviar Note Off
+        const notesToTurnOff = Array.from(
+          new Set([...activeMidiNotesRef.current, ...previouslyPlayedMidiNotesRef.current])
+        );
+
+        notesToTurnOff.forEach((midiNum) => {
           for (let ch = 0; ch < 16; ch++) {
-            out.send([0x80 | ch, midiNum, 0x00]); // Note Off on all channels
+            out.send([0x80 | ch, midiNum, 0x00]); // Note Off en todos los canales
           }
         });
+
+        // 2. Enviar CC All Notes Off (CC 123) y All Sound Off (CC 120) a todos los canales
+        for (let ch = 0; ch < 16; ch++) {
+          out.send([0xB0 | ch, 123, 0]);
+          out.send([0xB0 | ch, 120, 0]);
+        }
       } catch (e) {
-        console.warn("Error sending final MIDI note off:", e);
+        console.warn("Error enviando apagado completo de MIDI:", e);
       }
       activeMidiNotesRef.current = [];
-    }
-
-    // Secondary cleanup of previous legacy notes just in case (all channels)
-    if (activeOutputPortRef.current && previouslyPlayedMidiNotesRef.current.length > 0) {
-      try {
-        const out = activeOutputPortRef.current;
-        previouslyPlayedMidiNotesRef.current.forEach((midiNum) => {
-          for (let ch = 0; ch < 16; ch++) {
-            out.send([0x80 | ch, midiNum, 0x00]);
-          }
-        });
-      } catch (e) {}
       previouslyPlayedMidiNotesRef.current = [];
     }
   }, []);
@@ -2041,7 +2155,8 @@ export function SongGenerator() {
         prompt: `${section.prompt}. Sección: ${section.type} de la canción ${songTitle}`,
         key: section.key,
         scale: section.scale,
-        tempo: String(tempoVal)
+        tempo: String(tempoVal),
+        chordCount: section.chordCount
       });
 
       if (result.success && result.data) {
@@ -2056,12 +2171,15 @@ export function SongGenerator() {
           return { ...prev, sections: updatedSections };
         });
         toast.success(`¡Sección ${section.type} completada!`);
+        return result.data;
       } else {
         toast.error(`Error en sección ${section.type}: ${result.error}`);
+        return null;
       }
     } catch (err: any) {
       console.error(err);
       toast.error(`Fallo en sección ${section.type}`);
+      return null;
     } finally {
       setGeneratingSectionIds(prev => ({ ...prev, [section.id]: false }));
     }
@@ -2078,7 +2196,7 @@ export function SongGenerator() {
       if (res.success && res.data) {
         const blueprint: SongBlueprint = res.data;
         
-        // Structure the active song
+        // Structure the active song with new dynamic properties from the blueprint
         const newSong: SongStructure = {
           title: blueprint.title,
           genre: blueprint.genre,
@@ -2091,6 +2209,9 @@ export function SongGenerator() {
             prompt: sect.prompt,
             key: sect.key,
             scale: sect.scale,
+            chordCount: sect.chordCount,
+            reusedFrom: sect.reusedFrom,
+            variationOf: sect.variationOf,
             chords: null
           }))
         };
@@ -2099,12 +2220,78 @@ export function SongGenerator() {
         setActiveSectionId(newSong.sections[0].id);
         toast.success("¡Estructura de canción creada! Generando progresiones...");
 
-        // Sequentially generate chords for each section to provide premium loader UX
+        // Map to keep track of generated progressions per section type (e.g. "Coro 1" -> chords)
+        const generatedSectionsMap = new Map<string, any>();
+
+        // Sequentially generate chords for each section, supporting clones & variations
         for (const sect of newSong.sections) {
-          await generateSectionChords(sect, newSong.tempo, newSong.title);
+          // 1. Check for clones (reusedFrom)
+          if (sect.reusedFrom) {
+            const sourceChords = generatedSectionsMap.get(sect.reusedFrom);
+            if (sourceChords) {
+              setActiveSong(prev => {
+                if (!prev) return null;
+                const updatedSections = prev.sections.map(s => {
+                  if (s.id === sect.id) {
+                    return { ...s, chords: sourceChords };
+                  }
+                  return s;
+                });
+                return { ...prev, sections: updatedSections };
+              });
+              toast.success(`¡Sección ${sect.type} clonada exactamente de ${sect.reusedFrom}!`);
+              generatedSectionsMap.set(sect.type, sourceChords);
+              continue;
+            }
+          }
+
+          // 2. Check for variations (variationOf)
+          if (sect.variationOf) {
+            const baseChords = generatedSectionsMap.get(sect.variationOf);
+            if (baseChords) {
+              setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
+              try {
+                const baseChordsStr = baseChords.chords.map((c: any) => `${c.chord} (${c.role})`).join(", ");
+                const result = await generateChordProgressionAction({
+                  prompt: `Variación armónica de la progresión previa [${baseChordsStr}]. Variación deseada: ${sect.prompt}. Sección: ${sect.type} de la canción ${newSong.title}`,
+                  key: sect.key,
+                  scale: sect.scale,
+                  tempo: String(newSong.tempo),
+                  chordCount: sect.chordCount
+                });
+
+                if (result.success && result.data) {
+                  setActiveSong(prev => {
+                    if (!prev) return null;
+                    const updatedSections = prev.sections.map(s => {
+                      if (s.id === sect.id) {
+                        return { ...s, chords: result.data };
+                      }
+                      return s;
+                    });
+                    return { ...prev, sections: updatedSections };
+                  });
+                  generatedSectionsMap.set(sect.type, result.data);
+                  toast.success(`¡Sección ${sect.type} (variación de ${sect.variationOf}) generada!`);
+                  continue;
+                }
+              } catch (err) {
+                console.error("Error generating section variation, falling back to normal:", err);
+              } finally {
+                setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
+              }
+            }
+          }
+
+          // 3. Normal generation
+          const chords = await generateSectionChords(sect, newSong.tempo, newSong.title);
+          if (chords) {
+            generatedSectionsMap.set(sect.type, chords);
+          }
         }
 
         toast.success("¡Canción completa generada!");
+        setIsComposerOpen(false);
       } else {
         toast.error(res.error || "Fallo al crear estructura de canción.");
       }
@@ -2233,77 +2420,151 @@ export function SongGenerator() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Mode Selector Stepper Tabs */}
-            <TabsList className="bg-muted/60 p-1 rounded-xl border border-border/50">
-              <TabsTrigger value="estudio" className="rounded-lg text-xs font-bold px-4 py-2 flex items-center gap-2">
-                <Music className="w-3.5 h-3.5 text-primary" />
-                Mesa de Composición
-              </TabsTrigger>
-              <TabsTrigger value="biblioteca" className="rounded-lg text-xs font-bold px-4 py-2 flex items-center gap-2">
-                <FolderOpen className="w-3.5 h-3.5 text-primary" />
-                Biblioteca de Proyectos ({savedSongs.length})
-              </TabsTrigger>
-            </TabsList>
-
-            {/* Global Actions (Visible inside Studio view) */}
-            {activeSong && activeTab === "estudio" && (
-              <div className="flex flex-wrap gap-2.5">
-                <Button
-                  onClick={handleSaveSong}
-                  disabled={isSaving}
-                  variant="default"
-                  className="rounded-xl h-10 shadow-md font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2"
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-shrink-0">
+            {/* Unified DAW Control Toolbar */}
+            <div className="flex items-center gap-3 bg-muted/20 p-1.5 rounded-2xl border border-border/30 backdrop-blur-sm shadow-sm">
+              {/* Mode Selector Stepper Tabs */}
+              <TabsList className="bg-transparent p-0 border-0 h-auto space-x-1 flex items-center">
+                <TabsTrigger 
+                  value="estudio" 
+                  className="rounded-xl text-xs font-black px-3.5 py-1.5 h-8 flex items-center gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
                 >
-                  <Save className="w-4 h-4" />
-                  {isSaving ? "Guardando..." : "Guardar en Base de Datos"}
-                </Button>
-
-                <Button
-                  onClick={handleExportJson}
-                  variant="outline"
-                  className="rounded-xl h-10 border-border hover:bg-muted/50 flex items-center gap-2"
+                  <Music className="w-3.5 h-3.5 text-primary" />
+                  Mesa de Composición
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="biblioteca" 
+                  className="rounded-xl text-xs font-black px-3.5 py-1.5 h-8 flex items-center gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
                 >
-                  <Download className="w-4 h-4 text-primary" />
-                  Exportar JSON
-                </Button>
+                  <FolderOpen className="w-3.5 h-3.5 text-primary" />
+                  Biblioteca ({savedSongs.length})
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Vertical DAW Separator */}
+              <div className="h-5 w-[1px] bg-border/60 mx-1 flex-shrink-0" />
+
+              {/* Action Buttons Group */}
+              <div className="flex items-center gap-1.5">
+                {/* Primary IA Composer Button */}
+                <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="rounded-xl h-8 px-3.5 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm flex items-center gap-1.5 transition-all hover:scale-[1.01]">
+                      <Sparkles className="w-3.5 h-3.5 text-primary-foreground animate-pulse" />
+                      Componer con IA
+                    </Button>
+                  </DialogTrigger>
+                  
+                  {/* The wide modal content with vertical scroll */}
+                  <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto rounded-3xl border-border bg-card/95 backdrop-blur-md shadow-2xl p-0 overflow-x-hidden flex flex-col">
+                    <DialogHeader className="p-6 pb-2 border-b border-border/30">
+                      <DialogTitle className="text-lg font-black flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+                        Compositor de Canciones Inteligente
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-muted-foreground">
+                        Define el concepto de tu canción y configura los parámetros a tu gusto. La IA se encargará de realizar el arreglo armónico por ti.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="p-6 pt-4">
+                      <SongComposerForm
+                        loading={loading}
+                        onGenerateSong={onSubmit}
+                        onImportSong={(song) => {
+                          setActiveSong(song);
+                          setActiveSectionId(song.sections[0]?.id || null);
+                          setActiveTab("estudio");
+                          setIsComposerOpen(false);
+                        }}
+                      />
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Operations Dropdown Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="rounded-xl h-8 px-2.5 text-xs font-bold border-border bg-background hover:bg-muted/50 flex items-center gap-1">
+                      <Sliders className="w-3.5 h-3.5 text-primary" />
+                      Proyecto
+                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="rounded-xl border-border bg-card/95 backdrop-blur-md shadow-lg w-52 p-1.5 space-y-0.5">
+                    <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2.5 py-1.5">
+                      Operaciones
+                    </DropdownMenuLabel>
+                    
+                    <DropdownMenuItem 
+                      disabled={!activeSong || isSaving}
+                      onClick={handleSaveSong}
+                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
+                    >
+                      <Save className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>{isSaving ? "Guardando..." : "Guardar en DB"}</span>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem 
+                      disabled={!activeSong}
+                      onClick={handleExportJson}
+                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Exportar como JSON</span>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator className="bg-border/40" />
+
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        document.getElementById("dropdown-import-song-file")?.click();
+                      }}
+                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-purple-500" />
+                      <span>Importar Proyecto JSON</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-            )}
+            </div>
+
+            {/* Hidden file input for dropdown import */}
+            <input 
+              type="file" 
+              id="dropdown-import-song-file" 
+              accept=".json" 
+              className="hidden" 
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  try {
+                    const parsed = JSON.parse(event.target?.result as string);
+                    if (parsed.title && parsed.sections) {
+                      setActiveSong(parsed);
+                      setActiveSectionId(parsed.sections[0]?.id || null);
+                      setActiveTab("estudio");
+                      toast.success("¡Proyecto JSON de canción importado con éxito!");
+                    } else {
+                      toast.error("El formato del JSON no es válido.");
+                    }
+                  } catch (err) {
+                    toast.error("Error al parsear el JSON.");
+                  }
+                };
+                reader.readAsText(file);
+              }} 
+            />
           </div>
         </div>
 
         {/* Tab 1: Studio Composer Workbench */}
         <TabsContent value="estudio" className="mt-6 focus-visible:outline-none focus-visible:ring-0">
-          <div className="grid gap-6 lg:grid-cols-4">
-            {/* Left Column: Form & Saved Songs Quick View */}
-            <div className="lg:col-span-1 space-y-6">
-              <SongComposerForm
-                loading={loading}
-                onGenerateSong={onSubmit}
-                onImportSong={(song) => {
-                  setActiveSong(song);
-                  setActiveSectionId(song.sections[0]?.id || null);
-                  setActiveTab("estudio");
-                }}
-              />
-
-              <SidebarSongLibrary
-                savedSongs={savedSongs}
-                isLoadingSongs={isLoadingSongs}
-                activeSong={activeSong}
-                onSelectSong={(song) => {
-                  setActiveSong(song);
-                  setActiveSectionId(song.sections[0]?.id || null);
-                  setActiveTab("estudio");
-                  toast.success(`Abierta: "${song.title}"`);
-                }}
-                onDeleteSong={handleDeleteSong}
-              />
-            </div>
-
-            {/* Right Column: Song Arrange Studio Workspace */}
-            <div className="lg:col-span-3 space-y-6">
-              {!activeSong ? (
+          <div className="w-full space-y-6">
+            {!activeSong ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
                   <div className="p-4 bg-primary/10 rounded-full text-primary">
                     <ListMusic className="w-10 h-10 animate-bounce" />
@@ -2311,12 +2572,18 @@ export function SongGenerator() {
                   <div className="max-w-md space-y-2">
                     <h3 className="text-xl font-bold">Estudio Musical Vacío</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      Utiliza el formulario de la izquierda para componer una canción inteligente, o abre una de tus canciones guardadas en tu biblioteca personal de la base de datos.
+                      Abre el asistente de composición inteligente para crear tu estructura armónica modular con IA, o carga un proyecto de tu biblioteca.
                     </p>
-                    <Button onClick={() => setActiveTab("biblioteca")} variant="outline" className="rounded-xl mt-2 flex items-center gap-2 mx-auto border-border">
-                      <FolderOpen className="w-4 h-4 text-primary" />
-                      Explorar Biblioteca de Proyectos
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+                      <Button onClick={() => setIsComposerOpen(true)} variant="default" className="rounded-xl flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-md shadow-primary/20">
+                        <Sparkles className="w-4 h-4" />
+                        Componer Nueva Canción
+                      </Button>
+                      <Button onClick={() => setActiveTab("biblioteca")} variant="outline" className="rounded-xl flex items-center gap-2 border-border">
+                        <FolderOpen className="w-4 h-4 text-primary" />
+                        Explorar Biblioteca
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -2426,7 +2693,6 @@ export function SongGenerator() {
                   )}
                 </div>
               )}
-            </div>
           </div>
         </TabsContent>
 

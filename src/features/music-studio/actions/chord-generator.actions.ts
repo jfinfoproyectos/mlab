@@ -13,6 +13,7 @@ export interface GenerateChordProgressionResult {
 
 export async function generateChordProgressionAction(data: ChordInput): Promise<GenerateChordProgressionResult> {
   const validated = chordInputSchema.parse(data);
+  const count = validated.chordCount || 4;
 
   try {
     // 1. Get the active AI provider
@@ -20,7 +21,7 @@ export async function generateChordProgressionAction(data: ChordInput): Promise<
 
     // 2. Define the system prompt to guide the LLM
     const systemPrompt = `Eres un compositor y teórico musical de clase mundial experto en armonía de jazz, pop, clásica y neo-soul.
-Tu tarea es componer una progresión de acordes hermosa, coherente y emotiva (de EXACTAMENTE 4 acordes) que se ajuste a la descripción del usuario.
+Tu tarea es componer una progresión de acordes hermosa, coherente y emotiva (de EXACTAMENTE ${count} acordes) que se ajuste a la descripción del usuario.
 Debes rellenar todos los campos del esquema JSON estructurado de forma ultra-concisa.
 
 {
@@ -64,7 +65,7 @@ REGLAS DE TEORÍA Y CORRESPONDENCIA DE BAJO (OBLIGATORIO):
 - INCLUSIÓN DE LA TÓNICA (OBLIGATORIO): Todo acorde generado DEBE incluir obligatoriamente la tónica (Root/Fundamental) del acorde dentro del array 'pianoNotes'. Por ejemplo, para Ebm9, 'pianoNotes' DEBE incluir la nota Eb (ej. Eb3 o Eb4). Queda STRICTAMENTE PROHIBIDO utilizar voicings 'Rootless' (sin tónica) que omitan la nota fundamental.
 
 REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
-- Genera EXACTAMENTE 4 acordes (ni más ni menos).
+- Genera EXACTAMENTE ${count} acordes (ni más ni menos).
 - 'description' principal de la progresión: MÁXIMO 8 palabras.
 - 'description' individual de cada acorde: MÁXIMO 5 palabras.
 - 'romanNumeral': MÁXIMO 2 palabras (ej: 'i9', 'V7b9', 'bVImaj7').
@@ -75,7 +76,7 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
 - 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).`;
 
     // Build target user prompt respecting key, scale, and tempo
-    let targetPrompt = `Genera una progresión basada en el prompt: "${validated.prompt}".\n`;
+    let targetPrompt = `Genera una progresión de exactamente ${count} acordes basada en el prompt: "${validated.prompt}".\n`;
     if (validated.key && validated.key !== "Automático") {
       targetPrompt += `- Tonalidad obligatoria: Debe estar estrictamente en la tonalidad de: ${validated.key}.\n`;
     }
@@ -87,7 +88,7 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
     }
 
     // 3. Generate structured JSON output using the recommended Vercel AI SDK generateText API with Output.object
-    console.log("Calling Vercel AI SDK generateText with Output.object for prompt:", targetPrompt);
+    console.log(`Calling Vercel AI SDK generateText with Output.object for prompt (${count} chords):`, targetPrompt);
     
     try {
       const result = await generateText({
@@ -135,7 +136,7 @@ ESQUEMA A SEGUIR ESTRICTAMENTE:
 IMPORTANTE: Todo acorde generado DEBE incluir obligatoriamente la tónica (Root/Fundamental) del acorde dentro del array 'pianoNotes'. Por ejemplo, para Ebm9, 'pianoNotes' DEBE incluir la nota Eb (ej. Eb3 o Eb4). Queda estrictamente prohibido utilizar voicings 'Rootless' (sin tónica).
 La nota más grave de 'pianoNotes' debe coincidir exactamente con 'inversion' (Fundamental = Tónica en el bajo, 1ra Inversión = Tercera en el bajo, 2da Inversión = Quinta en el bajo, 3ra Inversión = Séptima en el bajo).
 
-Completa la progresión con EXACTAMENTE 4 acordes hermosos y coherentes.`;
+Completa la progresión con EXACTAMENTE ${count} acordes hermosos y coherentes.`;
 
       let rawText = "";
       try {

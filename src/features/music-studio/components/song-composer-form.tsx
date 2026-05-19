@@ -4,7 +4,6 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Sparkles, Upload } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -35,7 +34,10 @@ export function SongComposerForm({
       prompt: "",
       key: "Automático",
       scale: "Automático",
-      tempo: ""
+      tempo: "",
+      structureMode: "Automático",
+      chordsMode: "Automático",
+      repetitionMode: "Automático"
     }
   });
 
@@ -61,147 +63,196 @@ export function SongComposerForm({
   };
 
   return (
-    <Card className="border-border shadow-sm rounded-2xl bg-card/45 backdrop-blur-sm">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg font-bold flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-primary" />
-          Componer Canción
-        </CardTitle>
-        <CardDescription>
-          Genera la estructura de una canción y sus progresiones armónicas de forma secuencial.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <form onSubmit={handleSubmit(onGenerateSong)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="prompt" className="text-sm font-medium">Concepto / Vibe</Label>
-            <Input 
-              id="prompt"
-              placeholder="Ej. Balada Neo-Soul melancólica y nocturna..."
-              {...register("prompt")}
-              className="rounded-xl border-border bg-background/50 h-11 text-sm"
-            />
-            {errors.prompt && (
-              <p className="text-xs text-destructive mt-1">{errors.prompt.message}</p>
-            )}
-          </div>
+    <div className="w-full">
+      <form onSubmit={handleSubmit(onGenerateSong)} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left Column: Prompt & Inspiration presets */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="prompt" className="text-sm font-bold text-foreground">Concepto / Vibe</Label>
+              <textarea 
+                id="prompt"
+                rows={4}
+                placeholder="Ej. Balada Neo-Soul melancólica y nocturna con acordes de novena y vibraciones de lluvia..."
+                {...register("prompt")}
+                className="w-full rounded-2xl border border-border bg-background/50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none h-[115px]"
+              />
+              {errors.prompt && (
+                <p className="text-xs text-destructive mt-1">{errors.prompt.message}</p>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="key" className="text-xs font-semibold">Tonalidad General</Label>
-            <select
-              id="key"
-              {...register("key")}
-              className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
-            >
-              <option value="Automático">🔮 Automático</option>
-              <option value="C">C (Do)</option>
-              <option value="C#">C# (Do#)</option>
-              <option value="Db">Db (Reb)</option>
-              <option value="D">D (Re)</option>
-              <option value="Eb">Eb (Mib)</option>
-              <option value="E">E (Mi)</option>
-              <option value="F">F (Fa)</option>
-              <option value="F#">F# (Fa#)</option>
-              <option value="G">G (Sol)</option>
-              <option value="Ab">Ab (Lab)</option>
-              <option value="A">A (La)</option>
-              <option value="Bb">Bb (Sib)</option>
-              <option value="B">B (Si)</option>
-            </select>
-          </div>
+            {/* Presets List */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Ideas de Inspiración
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                {PRESETS.map((preset, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setValue("prompt", preset.prompt);
+                      toast.info(`Preset: "${preset.label}"`);
+                    }}
+                    className="text-left text-[11px] p-2.5 rounded-xl bg-muted/40 border border-border/40 hover:bg-muted/70 hover:border-primary/20 transition-all duration-200 line-clamp-2 h-12"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="scale" className="text-xs font-semibold">Escala General</Label>
-            <select
-              id="scale"
-              {...register("scale")}
-              className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
-            >
-              <option value="Automático">🔮 Automático</option>
-              <option value="Mayor / Jónico">Mayor / Jónico</option>
-              <option value="Menor Natural / Eólico">Menor Natural / Eólico</option>
-              <option value="Menor Armónica">Menor Armónica</option>
-              <option value="Menor Melódica">Menor Melódica</option>
-              <option value="Dórico">Dórico</option>
-              <option value="Frigio">Frigio</option>
-              <option value="Lidio">Lidio</option>
-              <option value="Mixolidio">Mixolidio</option>
-              <option value="Locrio">Locrio</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="tempo" className="text-xs font-semibold">Tempo (BPM)</Label>
-            <Input
-              id="tempo"
-              type="text"
-              placeholder="🔮 Automático (ej: 75)"
-              {...register("tempo")}
-              className="rounded-xl border-border bg-background/50 h-10 text-sm"
-            />
-          </div>
-
-          <Button 
-            type="submit" 
-            disabled={loading} 
-            className="w-full h-11 rounded-xl font-semibold shadow-md shadow-primary/20 transition-all hover:scale-[1.01]"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <span className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-                Componiendo Blueprint...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
-                Generar Canción
-              </span>
-            )}
-          </Button>
-        </form>
-
-        {/* Presets List */}
-        <div className="space-y-2 pt-2">
-          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Ideas de Inspiración
-          </Label>
-          <div className="flex flex-col gap-1.5">
-            {PRESETS.map((preset, i) => (
-              <button
-                key={i}
+            {/* Manual JSON Import Button */}
+            <div className="pt-2 border-t border-border/30">
+              <input 
+                type="file" 
+                id="import-song-project-file" 
+                accept=".json" 
+                className="hidden" 
+                onChange={handleFileChange} 
+              />
+              <Button 
                 type="button"
-                onClick={() => {
-                  setValue("prompt", preset.prompt);
-                  toast.info(`Preset seleccionado: "${preset.label}"`);
-                }}
-                className="text-left text-[11px] px-3 py-2 rounded-xl bg-muted/30 border border-border/40 hover:bg-muted/70 hover:border-primary/20 transition-all duration-200"
+                onClick={() => document.getElementById("import-song-project-file")?.click()}
+                variant="outline" 
+                className="w-full h-10 rounded-2xl text-xs flex items-center gap-2 border-border"
               >
-                {preset.label}
-              </button>
-            ))}
+                <Upload className="w-4 h-4 text-primary" />
+                Importar Proyecto JSON
+              </Button>
+            </div>
+          </div>
+
+          {/* Right Column: Harmonic & Structure Parameters */}
+          <div className="space-y-4 bg-muted/20 p-4 rounded-2xl border border-border/30">
+            <h4 className="text-xs font-bold text-foreground uppercase tracking-wider border-b border-border/20 pb-2 flex items-center gap-1.5">
+              Configuración del Arreglo
+            </h4>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="key" className="text-xs font-bold">Tonalidad</Label>
+                <select
+                  id="key"
+                  {...register("key")}
+                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="Automático">🔮 Automático</option>
+                  <option value="C">C (Do)</option>
+                  <option value="C#">C# (Do#)</option>
+                  <option value="Db">Db (Reb)</option>
+                  <option value="D">D (Re)</option>
+                  <option value="Eb">Eb (Mib)</option>
+                  <option value="E">E (Mi)</option>
+                  <option value="F">F (Fa)</option>
+                  <option value="F#">F# (Fa#)</option>
+                  <option value="G">G (Sol)</option>
+                  <option value="Ab">Ab (Lab)</option>
+                  <option value="A">A (La)</option>
+                  <option value="Bb">Bb (Sib)</option>
+                  <option value="B">B (Si)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="scale" className="text-xs font-bold">Escala</Label>
+                <select
+                  id="scale"
+                  {...register("scale")}
+                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="Automático">🔮 Automático</option>
+                  <option value="Mayor / Jónico">Mayor</option>
+                  <option value="Menor Natural / Eólico">Menor</option>
+                  <option value="Menor Armónica">Menor Armónica</option>
+                  <option value="Menor Melódica">Menor Melódica</option>
+                  <option value="Dórico">Dórico</option>
+                  <option value="Frigio">Frigio</option>
+                  <option value="Lidio">Lidio</option>
+                  <option value="Mixolidio">Mixolidio</option>
+                  <option value="Locrio">Locrio</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tempo" className="text-xs font-bold">Tempo (BPM)</Label>
+              <Input
+                id="tempo"
+                type="text"
+                placeholder="🔮 Automático (ej: 75)"
+                {...register("tempo")}
+                className="rounded-xl border-border bg-background/50 h-10 text-xs"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="structureMode" className="text-xs font-bold">Estructura / Secciones</Label>
+              <select
+                id="structureMode"
+                {...register("structureMode")}
+                className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                <option value="Automático">🔮 Automático (Decide IA)</option>
+                <option value="3-sections">3 secciones (Intro, Coro, Outro)</option>
+                <option value="4-sections">4 secciones (Intro, Verso, Coro, Outro)</option>
+                <option value="6-sections">6 secciones (Pop Corto / Repeticiones)</option>
+                <option value="8-sections">8 secciones (Pop Completo con Puente)</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="chordsMode" className="text-xs font-bold">Acordes por Sec.</Label>
+                <select
+                  id="chordsMode"
+                  {...register("chordsMode")}
+                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="Automático">🔮 Automático</option>
+                  <option value="2">2 acordes</option>
+                  <option value="4">4 acordes</option>
+                  <option value="6">6 acordes</option>
+                  <option value="8">8 acordes</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="repetitionMode" className="text-xs font-bold">Repeticiones</Label>
+                <select
+                  id="repetitionMode"
+                  {...register("repetitionMode")}
+                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="Automático">🔮 Automático</option>
+                  <option value="none">Sin repeticiones</option>
+                  <option value="force-exact">🔗 Clones</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Manual JSON Import Button */}
-        <div className="pt-2 border-t border-border/40">
-          <input 
-            type="file" 
-            id="import-song-project-file" 
-            accept=".json" 
-            className="hidden" 
-            onChange={handleFileChange} 
-          />
-          <Button 
-            type="button"
-            onClick={() => document.getElementById("import-song-project-file")?.click()}
-            variant="outline" 
-            className="w-full h-10 rounded-xl text-xs flex items-center gap-2 border-border"
-          >
-            <Upload className="w-4 h-4 text-primary" />
-            Importar Proyecto JSON
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+        <Button 
+          type="submit" 
+          disabled={loading} 
+          className="w-full h-12 rounded-2xl font-bold bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 transition-all hover:scale-[1.01] mt-6 flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <span className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+              Componiendo Blueprint y Secciones...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-5 h-5" />
+              Componer Canción Completa
+            </>
+          )}
+        </Button>
+      </form>
+    </div>
   );
 }

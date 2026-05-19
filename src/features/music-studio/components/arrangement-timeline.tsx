@@ -49,7 +49,7 @@ export function ArrangementTimeline({
             >
               <div className="space-y-1">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-black uppercase text-muted-foreground tracking-wider">
+                  <span className="text-xs font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
                     {sect.type}
                   </span>
                   
@@ -63,6 +63,22 @@ export function ArrangementTimeline({
                   )}
                 </div>
 
+                {/* Reused / Variation indicators */}
+                {(sect.reusedFrom || sect.variationOf) && (
+                  <div className="flex flex-wrap gap-1 my-1">
+                    {sect.reusedFrom && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" title={`Copia exacta de ${sect.reusedFrom}`}>
+                        🔗 Clon de {sect.reusedFrom}
+                      </span>
+                    )}
+                    {sect.variationOf && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 border border-indigo-500/20" title={`Variación de ${sect.variationOf}`}>
+                        ✨ Var. de {sect.variationOf}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <h4 className="text-sm font-bold truncate">
                   {sect.chords ? sect.chords.chords.map(c => c.chord).join(" ➔ ") : "Generando progresiones..."}
                 </h4>
@@ -74,8 +90,9 @@ export function ArrangementTimeline({
 
               {/* Bottom Row inside Section Stepper card */}
               <div className="flex justify-between items-center pt-2.5 mt-2 border-t border-border/20">
-                <div className="text-[9px] text-muted-foreground font-semibold">
-                  {sect.key} · {sect.scale}
+                <div className="text-[9px] text-muted-foreground font-semibold flex flex-col gap-0.5">
+                  <div>{sect.key} · {sect.scale}</div>
+                  {sect.chordCount && <div className="text-[8px] text-primary/80 font-bold uppercase tracking-widest">{sect.chordCount} acordes</div>}
                 </div>
 
                 {/* Section-level Regeneration */}
