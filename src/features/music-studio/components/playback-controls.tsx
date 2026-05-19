@@ -30,8 +30,6 @@ interface PlaybackControlsProps {
   activePlaybackNotes: string[];
   togglePlayback: () => void;
   stopPlayback: () => void;
-  playbackPreset: string;
-  setPlaybackPreset: (preset: string) => void;
   playbackMode: "basic" | "rhythm" | "arpeggio" | "custom-rhythm";
   setPlaybackMode: (mode: "basic" | "rhythm" | "arpeggio" | "custom-rhythm") => void;
   selectedRhythmPattern: string;
@@ -58,6 +56,9 @@ interface PlaybackControlsProps {
   // Loop mode
   loopMode: "song" | "section" | "off";
   setLoopMode: (mode: "song" | "section" | "off") => void;
+
+  // Sinfonía AI Modal Trigger
+  onOpenTrackComposer: () => void;
 }
 
 export function PlaybackControls({
@@ -67,8 +68,6 @@ export function PlaybackControls({
   activePlaybackNotes,
   togglePlayback,
   stopPlayback,
-  playbackPreset,
-  setPlaybackPreset,
   playbackMode,
   setPlaybackMode,
   selectedRhythmPattern,
@@ -88,7 +87,8 @@ export function PlaybackControls({
   playbackBpm,
   setPlaybackBpm,
   loopMode,
-  setLoopMode
+  setLoopMode,
+  onOpenTrackComposer
 }: PlaybackControlsProps) {
   return (
     <Card className="border-primary/20 shadow-lg rounded-3xl bg-zinc-950/85 dark:bg-zinc-950/90 text-zinc-100 p-5 space-y-4 backdrop-blur-md relative overflow-hidden">
@@ -156,19 +156,15 @@ export function PlaybackControls({
               Detener
             </Button>
 
-            {/* Sound Preset Selector */}
-            <div className="flex flex-col gap-1 min-w-[130px]">
-              <select
-                value={playbackPreset}
-                onChange={(e) => setPlaybackPreset(e.target.value)}
-                className="rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-200 h-11 px-3 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-zinc-800 transition-colors"
-              >
-                <option value="grand-piano">🎹 Piano de Cola</option>
-                <option value="vintage-rhodes">🎼 Vintage Rhodes</option>
-                <option value="dream-pads">🌌 Pads de Ensueño</option>
-                <option value="8bit-synth">👾 Retro 8-Bit</option>
-              </select>
-            </div>
+            {/* Sinfonía AI / Arreglista Multitrack Button */}
+            <Button
+              type="button"
+              onClick={onOpenTrackComposer}
+              className="rounded-xl h-11 px-4 bg-purple-600 hover:bg-purple-700 text-white font-extrabold shadow-md flex items-center gap-2 transition-all active:scale-[0.98] border border-purple-500/20"
+            >
+              <Music className="w-4 h-4 fill-white animate-pulse" />
+              Sinfonía AI (Pistas)
+            </Button>
 
             {/* Playback Mode Selector */}
             <div className="flex flex-col gap-1 min-w-[130px]">
@@ -296,7 +292,7 @@ export function PlaybackControls({
                   ) : (
                     <Volume2 className="w-3.5 h-3.5 text-emerald-500" />
                   )}
-                  Volumen Master
+                  Volumen Progresiones (Acordes)
                 </span>
                 <span className="font-mono text-emerald-400">{Math.round(playbackVolume * 100)}%</span>
               </div>

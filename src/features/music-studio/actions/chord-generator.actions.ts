@@ -1,6 +1,6 @@
 "use server";
 
-import { generateText, Output } from "ai";
+import { generateText, generateObject } from "ai";
 import { getActiveAiProvider } from "../services/ai-provider.service";
 import { chordInputSchema, chordProgressionSchema, ChordInput, ChordProgression } from "../schemas/chord-generator.schema";
 
@@ -91,18 +91,16 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
     console.log(`Calling Vercel AI SDK generateText with Output.object for prompt (${count} chords):`, targetPrompt);
     
     try {
-      const result = await generateText({
+      const result = await generateObject({
         model: provider,
+        schema: chordProgressionSchema,
         system: systemPrompt,
         prompt: targetPrompt,
-        output: Output.object({
-          schema: chordProgressionSchema,
-        }),
       });
 
       return {
         success: true,
-        data: result.output,
+        data: result.object,
       };
     } catch (structuredError: any) {
       console.warn("La generación estructurada nativa (Output.object) falló, activando Fallback de Texto Resiliente:", structuredError);

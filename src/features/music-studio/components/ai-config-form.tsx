@@ -120,6 +120,7 @@ export function AiConfigForm({ initialConfigs }: AiConfigFormProps) {
                   <SelectItem value="openai">OpenAI</SelectItem>
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="google">Google Generative AI</SelectItem>
+                  <SelectItem value="minimax">MiniMax AI</SelectItem>
                 </SelectContent>
               </Select>
             </div>

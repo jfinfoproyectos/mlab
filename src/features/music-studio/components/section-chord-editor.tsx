@@ -1,7 +1,5 @@
-"use client";
-
 import React from "react";
-import { Play, BookOpen, AlertCircle } from "lucide-react";
+import { BookOpen, AlertCircle, Play } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { PianoKeyboard } from "./piano-keyboard";
@@ -53,7 +51,7 @@ export function SectionChordEditor({
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Detailed theory analysis box */}
           {selectedSection.chords.theoryExplanation && (
             <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5 space-y-2 relative overflow-hidden shadow-inner">

@@ -1,13 +1,16 @@
 "use server";
 
-import { generateText, Output } from "ai";
+import { generateText, generateObject } from "ai";
+import { z } from "zod";
 import { getActiveAiProvider } from "../services/ai-provider.service";
 import { 
   songInputSchema, 
   songBlueprintSchema, 
   SongInput, 
   SongBlueprint, 
-  SongStructure 
+  SongStructure,
+  SongSectionTrack,
+  SongTrackNote
 } from "../schemas/song-generator.schema";
 import prisma from "@/lib/prisma";
 import { requireSession } from "@/proxy";
@@ -151,18 +154,16 @@ REGLAS ESTRICTAS DE CONCISIÓN:
     console.log("Calling Vercel AI SDK generateText for Song Blueprint (Dynamic with Controls):", targetPrompt);
 
     try {
-      const result = await generateText({
+      const result = await generateObject({
         model: provider,
+        schema: songBlueprintSchema,
         system: systemPrompt,
         prompt: targetPrompt,
-        output: Output.object({
-          schema: songBlueprintSchema,
-        }),
       });
 
       return {
         success: true,
-        data: result.output,
+        data: result.object,
       };
     } catch (structuredError: any) {
       console.warn("Song Blueprint estructurado nativo falló, ejecutando fallback de texto resiliente:", structuredError);
@@ -664,5 +665,307 @@ export async function deleteSongAction(songId: string) {
   } catch (error: any) {
     console.error("Error in deleteSongAction:", error);
     return { success: false as const, error: error.message || "Error al eliminar la canción." };
+  }
+}
+
+/**
+ * Action: Generate modular melodic or instrumental track for a song section.
+ */
+export async function generateSectionTrackAction(params: {
+  songTitle: string;
+  sectionType: string;
+  sectionKey: string;
+  sectionScale: string;
+  chordsList: Array<{
+    chord: string;
+    pianoNotes: string[];
+    role: string;
+  }>;
+  trackName: string;
+  midiChannel: number;
+  userPrompt: string;
+  previousSectionType?: string;
+  previousChordsList?: Array<{
+    chord: string;
+    pianoNotes: string[];
+    role: string;
+  }>;
+  previousSectionNotes?: Array<{
+    note: string;
+    startBeat: number;
+    durationBeats: number;
+    velocity: number;
+  }>;
+  nextSectionType?: string;
+  nextChordsList?: Array<{
+    chord: string;
+    pianoNotes: string[];
+    role: string;
+  }>;
+}): Promise<{ success: boolean; data?: SongSectionTrack; error?: string }> {
+  const { 
+    songTitle, 
+    sectionType, 
+    sectionKey, 
+    sectionScale, 
+    chordsList, 
+    trackName, 
+    midiChannel, 
+    userPrompt,
+    previousSectionType,
+    previousChordsList,
+    previousSectionNotes,
+    nextSectionType,
+    nextChordsList
+  } = params;
+
+  const totalBeats = chordsList.length * 4; // Each chord in our DAW is exactly 4 beats long
+
+  console.log(`[AI Multitrack] Generating track "${trackName}" for section "${sectionType}" (${songTitle})`);
+
+  // Local musical fallback generator for offline resiliency or key errors
+  const runMusicalFallback = (): SongSectionTrack => {
+    const isBass = trackName.toLowerCase().includes("bajo") || trackName.toLowerCase().includes("bass");
+    const isDrums = midiChannel === 10 || trackName.toLowerCase().includes("bateria") || trackName.toLowerCase().includes("drum");
+    const notes: SongTrackNote[] = [];
+
+    chordsList.forEach((c, idx) => {
+      const chordStartBeat = idx * 4;
+      const notesInChord = c.pianoNotes && c.pianoNotes.length > 0 ? c.pianoNotes : ["C4"];
+      const baseNote = notesInChord[0]; // e.g. "C3" or "Eb4"
+
+      // Parse pitch and octave
+      const match = baseNote.match(/^([A-G][#b]?)([0-9])$/i);
+      const pitch = match ? match[1] : "C";
+      const octave = match ? parseInt(match[2], 10) : 4;
+
+      if (isDrums) {
+        // Standard General MIDI Drum Kit pattern:
+        // - C2 (Pitch 36) = Acoustic Bass Drum (Kick)
+        // - D2 (Pitch 38) = Acoustic Snare
+        // - F#2 (Pitch 42) = Closed Hi-Hat
+        
+        // Bombo/Kick on beat 0.0 and 2.0 of each chord
+        // Caja/Snare on beat 1.0 and 3.0 of each chord
+        // Hi-Hat on every 0.5 beat (8 hi-hats per chord)
+        notes.push({ note: "C2", startBeat: chordStartBeat + 0.0, durationBeats: 0.5, velocity: 0.95 });
+        notes.push({ note: "D2", startBeat: chordStartBeat + 1.0, durationBeats: 0.5, velocity: 0.9 });
+        notes.push({ note: "C2", startBeat: chordStartBeat + 2.0, durationBeats: 0.5, velocity: 0.92 });
+        notes.push({ note: "D2", startBeat: chordStartBeat + 3.0, durationBeats: 0.5, velocity: 0.9 });
+        
+        for (let step = 0; step < 8; step++) {
+          notes.push({ note: "F#2", startBeat: chordStartBeat + (step * 0.5), durationBeats: 0.25, velocity: 0.7 });
+        }
+      } else if (isBass) {
+        // Funky syncopated rhythmic bassline: Fundamental at 0.0, 5th at 1.5, Octave at 2.5
+        const bassOctave = Math.max(1, octave - 1); // Bass octave should be lower
+        const rootBass = `${pitch}${bassOctave}`;
+        
+        // Find 5th note dynamically (or fallback)
+        let fifthPitch = "G";
+        const keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const rootIdx = keys.indexOf(pitch.toUpperCase());
+        if (rootIdx !== -1) {
+          fifthPitch = keys[(rootIdx + 7) % 12];
+        }
+        const fifthBass = `${fifthPitch}${bassOctave}`;
+
+        notes.push({ note: rootBass, startBeat: chordStartBeat + 0.0, durationBeats: 1.0, velocity: 0.95 });
+        notes.push({ note: fifthBass, startBeat: chordStartBeat + 1.5, durationBeats: 0.5, velocity: 0.85 });
+        notes.push({ note: rootBass, startBeat: chordStartBeat + 2.0, durationBeats: 1.0, velocity: 0.9 });
+        notes.push({ note: fifthBass, startBeat: chordStartBeat + 3.5, durationBeats: 0.5, velocity: 0.8 });
+      } else {
+        // Singable flowing arpeggiated lead/melody tracing the chord tones
+        const melodyOctave = Math.max(3, octave);
+        const rootMelody = `${pitch}${melodyOctave}`;
+
+        // Find 3rd and 5th chord tones
+        const t3 = notesInChord[1] || rootMelody;
+        const t5 = notesInChord[2] || rootMelody;
+
+        notes.push({ note: rootMelody, startBeat: chordStartBeat + 0.0, durationBeats: 1.0, velocity: 0.85 });
+        notes.push({ note: t3, startBeat: chordStartBeat + 1.0, durationBeats: 1.0, velocity: 0.8 });
+        notes.push({ note: t5, startBeat: chordStartBeat + 2.0, durationBeats: 1.5, velocity: 0.85 });
+      }
+    });
+
+    return {
+      id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: trackName,
+      midiChannel: midiChannel,
+      instrumentPreset: isDrums ? "drum-kit" : (isBass ? "8bit-synth" : "grand-piano"),
+      notes,
+      prompt: userPrompt || "Local Musical Fallback",
+      volume: 0.7
+    };
+  };
+
+  try {
+    const provider = await getActiveAiProvider();
+
+    const chordsString = chordsList
+      .map((c, idx) => `Acorde ${idx + 1}: ${c.chord} (Notas: ${c.pianoNotes.join(", ")}, Función: ${c.role})`)
+      .join("\n");
+
+    const chordCoverageInstructions = chordsList.map((c, idx) => {
+      const start = idx * 4;
+      const end = start + 4;
+      return `- Acorde ${idx + 1} (${c.chord}): Genera OBLIGATORIAMENTE entre 2 y 5 notas con 'startBeat' entre los tiempos ${start.toFixed(1)} y ${(end - 0.1).toFixed(1)} (que es el intervalo en el que suena este acorde).`;
+    }).join("\n");
+
+    const systemPrompt = `Eres un arreglista e instrumentista de sesión de clase mundial galardonado.
+    Tu tarea es componer una pista instrumental o de voz melódica solista que armonice a la perfección con la progresión de acordes de la sección dada.
+
+    INFORMACIÓN DEL GRID TEMPORAL:
+    - La sección dura exactamente ${totalBeats} tiempos/negras.
+    - Cada acorde de la progresión dura exactamente 4 tiempos en nuestro secuenciador.
+    - Chord 1 (Primer Acorde): tiempos 0.0 a 4.0.
+    - Chord 2 (Segundo Acorde): tiempos 4.0 a 8.0.
+    - Chord 3 (Tercer Acorde): tiempos 8.0 a 12.0.
+    - Chord 4 (Cuarto Acorde): tiempos 12.0 a 16.0 (y así sucesivamente si hay más acordes).
+
+    DISTRIBUCIÓN OBLIGATORIA DE NOTAS POR ACORDE (CRÍTICO):
+    Debes componer y distribuir notas para la totalidad de la progresión. Específicamente, debes asegurarte de colocar notas en el rango de tiempo de cada acorde. No dejes acordes vacíos sin melodía:
+    ${chordCoverageInstructions}
+
+    REGLAS DE ARMONIZACIÓN Y DIRECCIÓN MUSICAL:
+    1. Las notas generadas DEBEN empezar dentro de los tiempos de la sección (desde 0.0 hasta ${totalBeats}.0).
+    2. Debes adaptar la dirección y vibe del prompt del usuario: "${userPrompt}".
+    3. COBERTURA COMPLETA Y OBLIGATORIA DE TODOS LOS ACORDES (CRÍTICO): Debes componer notas que abarquen y cubran la SECCIÓN COMPLETA y todos los acordes de la progresión, desde el tiempo 0.0 hasta el tiempo ${totalBeats}.0. La melodía o patrón rítmico NO debe detenerse tras el primer o segundo acorde. Debe continuar desarrollándose de forma fluida y constante a lo largo de todos los compases y acordes de la sección entera (por ejemplo, tocando sobre el tiempo 0..4, el tiempo 4..8, el tiempo 8..12, y el tiempo 12..16). EXCEPCIÓN: La única excepción a esta regla es si el prompt de usuario ("${userPrompt}") indica explícitamente limitar la melodía a una parte específica.
+    4. Para pistas de BAJO (Bassline): Enfócate estrictamente en las fundamentales (roots) y quintas (5ths) de cada acorde activo. Coloca la tónica en el tiempo fuerte del acorde (ej. tiempo 0.0, 4.0, 8.0, 12.0) y la quinta o paso de aproximación cromática/diatónica en los contratiempos (ej. 2.0, 3.0, 3.5) para conducir al siguiente acorde de forma fluida (aplicando walking bass o patrones rítmicos estables).
+    5. Para pistas de VOZ / SOLISTAS / LÍDERES (Melody): Aplica teoría musical avanzada para la creación de frases:
+       - NOTAS EN TIEMPOS FUERTES (Downbeats): En el inicio de los compases y tiempos fuertes (tiempos 0.0, 2.0), prioriza notas del acorde activo (chord tones: 3ra para definir el color mayor/menor, tónica, 5ta o 7ma).
+       - NOTAS EN TIEMPOS DÉBILES (Upbeats): Utiliza las extensiones de la escala (${sectionScale}) en la tonalidad (${sectionKey}), como la 9na, 11na, 13ra, notas de paso (passing tones) o notas de adorno (neighboring tones) en los contratiempos y fracciones (ej. 0.5, 1.5, 2.5, 3.5).
+       - CONDUCCIÓN DE VOCES (Voice Leading): Al transicionar entre acordes, la melodía debe resolver por paso conjunto (distancia de un semitono o un tono) hacia una nota estable del nuevo acorde. Evita saltos de intervalo de más de una quinta justa (7 semitonos) a menos que se pida expresamente una tensión o salto dramático.
+       - RESOLUCIÓN DE TENSIONES: Las notas de tensión melódica deben resolver de forma diatónica (ej. la sensible o 7ma mayor debe resolver subiendo a la tónica; la oncena o 4ta debe resolver descendiendo a la tercera).
+       - CONTORNO Y RESPIRACIÓN: Dibuja un contorno melódico ondulado coherente que ascienda gradualmente a un clímax y luego descienda. Incluye silencios (deja algunos intervalos de 0.5 o 1.0 tiempos vacíos de notas) para que la frase respire de forma humana y expresiva.
+    6. Para pistas de BATERÍA / PERCUSIÓN (Canal MIDI 10 / Pistas de percusión):
+       - FIGURAS Y ESTILO: Adapta el patrón rítmico según el género y ritmo solicitado ("${userPrompt}"). Respeta las figuras rítmicas del estilo:
+         * Rock/Pop: Bombo en tiempos fuertes ("C2" en 0.0, 2.0...), Caja en contratiempos ("D2" en 1.0, 3.0...), Charleston Cerrado ("F#2") constante.
+         * Funk/R&B: Síncopas rítmicas de bombo doble, cajas fantasmas y charles abierto ("A#2") en contratiempos débiles.
+         * Jazz/Swing: Ritmo de Ride ("D#3") oscilado/swingeado en tresillos y golpes de caja sutiles.
+         * Latin/Bossa: Patrón de aro ("C#2" o "D2") simulando la clave y bombo sincopado.
+       - INTROS: Si la sección actual es un "Intro" (tipo de sección: "${sectionType}"), inicia con un patrón rítmico simplificado o introduce un redoble de entrada (pickup drum fill) de 1 o 2 tiempos de duración.
+       - REDOBLES / TRANSICIONES (Fills): En el último compás de la sección (especialmente entre los tiempos ${totalBeats - 2.5} y ${totalBeats}.0), rompe el patrón rítmico principal y genera un redoble (drum fill) rápido usando Caja ("D2"), Toms ("G2", "A2", "B2", "C3") y un Platillo Crash ("C#3") justo al final para acentuar el paso a la siguiente sección.
+       - FINALES / OUTROS: Si la sección actual es un "Outro" o la parte final de la canción, genera un patrón que disminuya de intensidad rítmica progresivamente y termine con un golpe final simultáneo de Platillo Crash ("C#3") y Bombo ("C2") en el último tiempo fuerte, seguido de silencio completo.
+       - Notas GM Drum Map correspondientes:
+         * "C2" (Pitch 36) para Bombo / Kick Drum.
+         * "D2" (Pitch 38) para Caja / Snare Drum.
+         * "F#2" (Pitch 42) para Charleston Cerrado / Closed Hi-Hat.
+         * "A#2" (Pitch 46) para Charleston Abierto / Open Hi-Hat.
+         * "C#3" (Pitch 49) para Platillo Crash / Crash Cymbal.
+         * "G2" / "A2" / "B2" / "C3" (Pitches 43, 45, 47, 48) para Toms (Tom Grave, Medio y Agudo) para redobles.
+    7. Cada nota debe especificarse en formato de pitch con octava estándar (ej: C4, Eb4, G3, A#4, D5). En batería usa C2, D2, F#2, A#2, G2, A2, B2, C3 y C#3 para los elementos clave del kit.
+    8. Ajusta las velocidades (velocity) de 0.0 a 1.0 para dar un toque humano y expresivo.
+
+    EJEMPLO DE ESTRUCTURA JSON DE RESPUESTA (Para una sección de 4 acordes / 16 tiempos de duración total):
+    {
+      "notes": [
+        { "note": "C4", "startBeat": 0.0, "durationBeats": 1.0, "velocity": 0.9 },
+        { "note": "E4", "startBeat": 1.0, "durationBeats": 1.0, "velocity": 0.8 },
+        { "note": "G4", "startBeat": 2.0, "durationBeats": 1.5, "velocity": 0.85 },
+        
+        { "note": "F4", "startBeat": 4.0, "durationBeats": 1.0, "velocity": 0.9 },
+        { "note": "A4", "startBeat": 5.0, "durationBeats": 1.0, "velocity": 0.8 },
+        { "note": "C5", "startBeat": 6.0, "durationBeats": 2.0, "velocity": 0.85 },
+        
+        { "note": "G4", "startBeat": 8.0, "durationBeats": 0.75, "velocity": 0.9 },
+        { "note": "B4", "startBeat": 9.0, "durationBeats": 1.0, "velocity": 0.8 },
+        { "note": "D5", "startBeat": 10.5, "durationBeats": 1.5, "velocity": 0.85 },
+        
+        { "note": "C5", "startBeat": 12.0, "durationBeats": 2.0, "velocity": 0.9 },
+        { "note": "G4", "startBeat": 14.0, "durationBeats": 1.0, "velocity": 0.8 },
+        { "note": "C4", "startBeat": 15.0, "durationBeats": 1.0, "velocity": 0.7 }
+      ]
+    }`;
+
+    let transitionInstructions = "";
+    if (previousSectionType) {
+      const prevChordsStr = previousChordsList && previousChordsList.length > 0
+        ? previousChordsList.map(c => c.chord).join(" -> ")
+        : "Progresión base";
+      const prevNotesSummary = previousSectionNotes && previousSectionNotes.length > 0
+        ? previousSectionNotes.slice(-4).map(n => `${n.note} (tiempo ${n.startBeat}, dur ${n.durationBeats})`).join(", ")
+        : "Melodía de la sección previa";
+      transitionInstructions += `\n\n--- CONEXIÓN CON SECCIÓN PREVIA (${previousSectionType}) ---
+- Estructura Armónica Previa: ${prevChordsStr}
+- Últimas notas del solo anterior: [${prevNotesSummary}]
+- INSTRUCCIÓN DE COHERENCIA: Inicia la melodía de esta sección actual de forma suave y conectada con el solo/arreglo anterior. Evita saltos bruscos de octava (ej: si la sección previa terminó en C4, no comiences repentinamente en C6). Continúa la idea motívica, actuando como una frase responsiva o extensión de la sección anterior.`;
+    }
+
+    if (nextSectionType) {
+      const nextChordsStr = nextChordsList && nextChordsList.length > 0
+        ? nextChordsList.map(c => c.chord).join(" -> ")
+        : "Progresión base";
+      transitionInstructions += `\n\n--- CONEXIÓN CON SECCIÓN SIGUIENTE (${nextSectionType}) ---
+- Estructura Armónica Siguiente: ${nextChordsStr}
+- INSTRUCCIÓN DE COHERENCIA: Hacia los últimos compases de esta sección actual (tiempos ${totalBeats - 4}.0 a ${totalBeats}.0), conduce melódicamente las notas para crear una tensión, anticipación o resolución suave que sirva de puente natural para entrar a la sección siguiente (${nextSectionType}).`;
+    }
+
+    const targetPrompt = `Genera un arreglo melódico instrumental para la pista "${trackName}" (Canal MIDI ${midiChannel}) sobre el Verso/Sección "${sectionType}" de la canción "${songTitle}".
+Tonalidad de Sección: ${sectionKey} (${sectionScale})
+Progresión Armónica:\n${chordsString}
+
+DISTRIBUCIÓN DE NOTAS PARA ESTA GENERACIÓN (OBLIGATORIO):
+Debes generar notas a lo largo de toda la sección. Genera notas específicas para cada uno de los siguientes intervalos de acordes:
+${chordCoverageInstructions}
+
+Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Instrumento: ${trackName}${transitionInstructions}`;
+
+    const generatedTrackSchema = z.object({
+      notes: z.array(z.object({
+        note: z.string().describe("Paso de nota con octava, ej: C4, Eb4, G3, Bb4"),
+        startBeat: z.number().describe(`Tiempo de inicio en negras relativo a la sección (desde 0.0 hasta ${totalBeats}.0). Debes distribuir las notas a lo largo de todo este rango para cubrir la sección completa. A menos que el prompt del usuario indique explícitamente limitar la melodía en su prompt (ej: "toca solo al inicio"), la música debe durar y distribuirse por toda la progresión entera de principio a fin.`),
+        durationBeats: z.number().describe("Duración en negras (ej: 0.25, 0.5, 1.0, 2.0)"),
+        velocity: z.number().describe("Velocidad de pulsación (0.0 a 1.0)"),
+      }))
+    });
+
+    const result = await generateObject({
+      model: provider,
+      schema: generatedTrackSchema,
+      system: systemPrompt,
+      prompt: targetPrompt,
+    });
+
+    if (result.object && Array.isArray(result.object.notes)) {
+      const generatedNotes = result.object.notes.map((n: any) => ({
+        note: String(n.note),
+        startBeat: Number(n.startBeat),
+        durationBeats: Number(n.durationBeats),
+        velocity: Math.min(1.0, Math.max(0.0, Number(n.velocity))),
+      }));
+
+      const isBass = trackName.toLowerCase().includes("bajo") || trackName.toLowerCase().includes("bass");
+
+      return {
+        success: true,
+        data: {
+          id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: trackName,
+          midiChannel: midiChannel,
+          instrumentPreset: isBass ? "8bit-synth" : "grand-piano",
+          notes: generatedNotes,
+          prompt: userPrompt,
+          volume: 0.7
+        }
+      };
+    }
+
+    throw new Error("Formato de respuesta de IA inválido");
+  } catch (error: any) {
+    console.warn("generateSectionTrackAction falló, usando fallback musical offline de alta calidad:", error);
+    try {
+      const fallbackTrack = runMusicalFallback();
+      return {
+        success: true,
+        data: fallbackTrack
+      };
+    } catch (fallbackError: any) {
+      return {
+        success: false,
+        error: `Fallo al generar pista: ${fallbackError.message || fallbackError}`
+      };
+    }
   }
 }

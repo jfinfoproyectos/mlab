@@ -166,3 +166,4 @@
     at async handleRequest (C:\Users\Jhon\Documents\Datos\Informacion\2026\Proyectos\musiclab\node_modules\next\dist\server\lib\router-server.js:465:24)
     at async requestHandlerImpl (C:\Users\Jhon\Documents\Datos\Informacion\2026\Proyectos\musiclab\node_modules\next\dist\server\lib\router-server.js:514:13)
     at async Server.requestListener (C:\Users\Jhon\Documents\Datos\Informacion\2026\Proyectos\musiclab\node_modules\next\dist\server\lib\start-server.js:225:13)
+[2026-05-19T15:19:55.203Z] LOAD ERROR: APIError: Failed to get session

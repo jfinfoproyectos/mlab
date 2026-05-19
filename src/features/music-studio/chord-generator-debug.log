@@ -256,3 +256,9 @@ Error fallback: models/gemini-1.5-flash is not found for API version v1beta, or 
 Texto crudo del LLM:
 
 
+--- DEBUG LOG: 2026-05-19T04:33:11.082Z ---
+Error original: No object generated: response did not match schema.
+Error fallback: El modelo retorno una respuesta de texto vacia o nula.
+Texto crudo del LLM:
+
+

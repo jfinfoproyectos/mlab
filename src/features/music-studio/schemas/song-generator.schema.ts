@@ -35,6 +35,45 @@ export const songBlueprintSchema = z.object({
 export type SongSectionBlueprint = z.infer<typeof songSectionBlueprintSchema>;
 export type SongBlueprint = z.infer<typeof songBlueprintSchema>;
 
+export const songTrackNoteSchema = z.object({
+  note: z.string().describe("Nota musical con octava (ej: C4, Eb5)"),
+  startBeat: z.number().describe("Tiempo de inicio en negras relativo a la sección (0.0 a 16.0)"),
+  durationBeats: z.number().describe("Duración de la nota en negras (ej: 0.5, 1.0, 2.0)"),
+  velocity: z.number().min(0.0).max(1.0).describe("Velocidad o volumen de la nota (0.0 a 1.0)"),
+});
+
+export type SongTrackNote = z.infer<typeof songTrackNoteSchema>;
+
+export const songSectionTrackSchema = z.object({
+  id: z.string(),
+  name: z.string().describe("Nombre de la pista (ej: Voz Principal, Línea de Bajo)"),
+  midiChannel: z.number().min(1).max(16).describe("Canal MIDI para reproducir esta pista (1 a 16)"),
+  instrumentPreset: z.string().optional().describe("Preset de instrumento opcional para sintetizador interno"),
+  notes: z.array(songTrackNoteSchema),
+  prompt: z.string().optional().describe("Prompt opcional utilizado para la generación"),
+  volume: z.number().min(0.0).max(1.0).default(0.7).describe("Volumen de pista (0.0 a 1.0)"),
+  muted: z.boolean().optional().describe("Indica si la pista está silenciada"),
+  soloed: z.boolean().optional().describe("Indica si la pista está en modo solo"),
+});
+
+export type SongSectionTrack = z.infer<typeof songSectionTrackSchema>;
+
+export const songTrackSchema = z.object({
+  id: z.string(),
+  name: z.string().describe("Nombre de la pista global (ej. Línea de Bajo, Voz Principal)"),
+  midiChannel: z.number().min(1).max(16).describe("Canal MIDI para reproducir esta pista (1 a 16)"),
+  instrumentPreset: z.string().optional().describe("Preset de instrumento opcional para reproducir esta pista"),
+  volume: z.number().min(0.0).max(1.0).default(0.7).describe("Volumen global de la pista (0.0 a 1.0)"),
+  prompts: z.record(z.string(), z.string()).optional().describe("Mapeo de sectionId a prompt utilizado"),
+  sectionNotes: z.record(z.string(), z.array(songTrackNoteSchema)).describe("Mapeo de sectionId a la lista de notas de la pista"),
+  isGenerating: z.boolean().optional(),
+  progress: z.number().optional(),
+  muted: z.boolean().optional().describe("Indica si la pista está silenciada"),
+  soloed: z.boolean().optional().describe("Indica si la pista está en modo solo"),
+});
+
+export type SongTrack = z.infer<typeof songTrackSchema>;
+
 export const songSectionSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -45,6 +84,7 @@ export const songSectionSchema = z.object({
   chordCount: z.number().optional(),
   reusedFrom: z.string().optional(),
   variationOf: z.string().optional(),
+  tracks: z.array(songSectionTrackSchema).optional(),
 });
 
 export type SongSection = z.infer<typeof songSectionSchema>;
@@ -57,6 +97,13 @@ export const songSchema = z.object({
   tempo: z.number(),
   description: z.string(),
   sections: z.array(songSectionSchema),
+  tracks: z.array(songTrackSchema).optional(),
+  playbackMode: z.string().optional().describe("Modo de reproducción de acordes (basic, rhythm, arpeggio, custom-rhythm)"),
+  selectedRhythmPattern: z.string().optional().describe("Patrón rítmico seleccionado"),
+  selectedArpeggioPattern: z.string().optional().describe("Patrón de arpegio seleccionado"),
+  playbackVolume: z.number().optional().describe("Volumen master de reproducción"),
+  customRhythmSteps: z.array(z.array(z.boolean())).optional().describe("Matriz de pasos personalizados de ritmo"),
+  loopMode: z.string().optional().describe("Modo de bucle (song, section, off)"),
 });
 
 export type SongStructure = z.infer<typeof songSchema>;

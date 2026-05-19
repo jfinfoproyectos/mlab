@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createMinimax } from "vercel-minimax-ai-provider";
 import { AiConfigService } from "./ai-config.service";
 
 function sanitizeModelId(provider: string, modelId: string | null | undefined): string {
@@ -8,6 +9,7 @@ function sanitizeModelId(provider: string, modelId: string | null | undefined): 
     if (provider === "google") return "gemini-1.5-flash";
     if (provider === "openai") return "gpt-4o";
     if (provider === "anthropic") return "claude-3-5-sonnet-20240620";
+    if (provider === "minimax") return "MiniMax-M2.7";
     return "";
   }
   return modelId.trim();
@@ -62,14 +64,28 @@ export async function getActiveAiProvider() {
         });
         return google(sanitizedModel);
       }
+      case "minimax": {
+        const minimax = createMinimax({
+          apiKey: config.apiKey,
+          baseURL: sanitizedBaseUrl,
+        });
+        return minimax(sanitizedModel);
+      }
       default:
         throw new Error(`Unsupported provider: ${config.provider}`);
     }
   }
 
   // 3. Fallback: use environment variables directly
-  //    Supports AI_GATEWAY_API_KEY (Google), GOOGLE_GENERATIVE_AI_API_KEY,
-  //    OPENAI_API_KEY, and ANTHROPIC_API_KEY
+  //    Supports MINIMAX_API_KEY (MiniMax), AI_GATEWAY_API_KEY (Google), 
+  //    GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, and ANTHROPIC_API_KEY
+  const minimaxKey = process.env.MINIMAX_API_KEY;
+  if (minimaxKey) {
+    console.info("Using MiniMax from environment variable (MINIMAX_API_KEY).");
+    const minimax = createMinimax({ apiKey: minimaxKey });
+    return minimax("MiniMax-M2.7");
+  }
+
   const googleKey =
     process.env.AI_GATEWAY_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||

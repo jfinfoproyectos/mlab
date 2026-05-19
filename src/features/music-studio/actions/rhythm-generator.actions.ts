@@ -1,6 +1,6 @@
 "use server";
 
-import { generateText, Output } from "ai";
+import { generateText, generateObject } from "ai";
 import { getActiveAiProvider } from "../services/ai-provider.service";
 import { z } from "zod";
 
@@ -47,23 +47,21 @@ REGLAS DE GROOVE PROFESIONAL:
     const userPrompt = `Genera un patrón rítmico creativo y profesional de 16 pasos basado en la siguiente instrucción de estilo: "${prompt}"`;
 
     try {
-      const result = await generateText({
+      const result = await generateObject({
         model: provider,
+        schema: rhythmPatternSchema,
         system: systemPrompt,
         prompt: userPrompt,
-        output: Output.object({
-          schema: rhythmPatternSchema,
-        }),
       });
 
-      const steps = result.output.steps;
+      const steps = result.object.steps;
       if (!steps || steps.length !== 5 || steps.some(row => row.length !== 16)) {
         throw new Error("La cuadrícula generada no tiene las dimensiones correctas (5x16).");
       }
 
       return {
         success: true,
-        name: result.output.name,
+        name: result.object.name,
         steps: steps,
       };
     } catch (err: any) {
