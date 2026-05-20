@@ -1,5 +1,5 @@
 import { getSession } from "@/proxy";
-import { SongGenerator } from "@/features/music-studio";
+import { SongGenerator, AiConfigService } from "@/features/music-studio";
 import { redirect } from "next/navigation";
 
 export const metadata = {
@@ -14,9 +14,11 @@ export default async function AdminSongGeneratorPage() {
     redirect("/sign-in");
   }
 
+  const aiConfigs = await AiConfigService.getConfigs();
+
   return (
-    <div className="flex flex-col gap-6 w-full animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-      <SongGenerator />
+    <div className="flex flex-col gap-6 w-full animate-in fade-in duration-300 overflow-hidden h-full">
+      <SongGenerator initialConfigs={aiConfigs} />
     </div>
   );
 }

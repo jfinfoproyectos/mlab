@@ -62,29 +62,22 @@ export function PianoKeyboard({ activeNotes }: PianoKeyboardProps) {
   };
 
   return (
-    <div className="w-full space-y-1.5 pt-3 border-t border-border/50">
-      <div className="flex justify-between items-center text-[9px] text-muted-foreground font-semibold px-0.5">
-        <span>Disposición en Piano</span>
-        <span className="font-mono text-[8px] font-bold text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 select-all">
-          {sortedNotes.join(' ')}
-        </span>
-      </div>
-      
-      <div className="relative w-full h-11 bg-background border border-border rounded-lg overflow-hidden shadow-inner flex">
+    <div className="w-full">
+      <div className="relative w-full h-20 bg-zinc-950 dark:bg-black border border-zinc-850 dark:border-zinc-900 rounded-2xl overflow-hidden shadow-inner flex">
         {whiteKeys.map((key) => {
           const active = isNoteActive(key.note);
           return (
             <div
               key={key.note}
-              className={`flex-1 border-r border-muted-foreground/15 last:border-r-0 h-full rounded-b transition-colors duration-75 relative ${
+              className={`flex-1 border-r border-zinc-800/60 last:border-r-0 h-full rounded-b-xl transition-all duration-100 relative ${
                 active 
-                  ? 'bg-primary text-primary-foreground shadow-none' 
-                  : 'bg-background hover:bg-muted/50'
+                  ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 shadow-[inset_0_-6px_0_rgba(0,0,0,0.2),0_4px_12px_rgba(16,185,129,0.35)] text-zinc-950' 
+                  : 'bg-zinc-100 dark:bg-zinc-150 hover:bg-white dark:hover:bg-zinc-50 shadow-[inset_0_-5px_0_rgba(0,0,0,0.12)]'
               }`}
             >
               {key.label === 'C' && (
-                <span className={`absolute bottom-0.5 left-0.5 text-[7px] font-black tracking-tighter ${
-                  active ? 'text-primary-foreground/75' : 'text-muted-foreground/30'
+                <span className={`absolute bottom-1 left-1.5 text-[8px] font-black tracking-tight ${
+                  active ? 'text-zinc-950/70' : 'text-zinc-500/50 dark:text-zinc-500/50'
                 }`}>
                   {key.note}
                 </span>
@@ -99,10 +92,10 @@ export function PianoKeyboard({ activeNotes }: PianoKeyboardProps) {
             <div
               key={key.note}
               style={{ left: key.left }}
-              className={`absolute top-0 w-[4.8%] h-[58%] border border-black/35 rounded-b transition-colors duration-75 z-10 ${
+              className={`absolute top-0 w-[4.8%] h-[58%] border border-zinc-950 rounded-b-md transition-all duration-100 z-10 ${
                 active 
-                  ? 'bg-primary shadow-none' 
-                  : 'bg-zinc-950 dark:bg-zinc-900 border-zinc-900'
+                  ? 'bg-gradient-to-b from-emerald-300 to-emerald-500 shadow-[0_4px_10px_rgba(52,211,153,0.45)]' 
+                  : 'bg-zinc-900 hover:bg-zinc-800 shadow-[inset_0_-2px_0_rgba(255,255,255,0.08)]'
               }`}
             />
           );

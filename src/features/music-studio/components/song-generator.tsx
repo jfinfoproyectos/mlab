@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { 
@@ -35,28 +36,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { 
   Music, 
   Sparkles, 
   Copy, 
   Check, 
   AlertCircle, 
-  Compass, 
+  Compass,
+  ArrowRight,
+  Eye,
   Activity, 
   RefreshCw, 
   BookOpen, 
   ChevronRight, 
   ChevronDown,
-  Upload, 
-  Download, 
   Save, 
   FolderOpen, 
   Trash2, 
@@ -68,10 +62,14 @@ import {
   Repeat,
   Sliders,
   Volume2,
-  VolumeX
+  VolumeX,
+  Keyboard,
+  Plus,
+  Settings,
+  Cpu
 } from "lucide-react";
 
-import { PianoKeyboard } from "./piano-keyboard";
+
 import { SongLibrary } from "./song-library";
 import { RhythmSequencer } from "./rhythm-sequencer";
 import { SongComposerForm } from "./song-composer-form";
@@ -79,6 +77,12 @@ import { SidebarSongLibrary } from "./sidebar-song-library";
 import { PlaybackControls } from "./playback-controls";
 import { ArrangementTimeline } from "./arrangement-timeline";
 import { SectionChordEditor } from "./section-chord-editor";
+import { PianoRoll } from "./piano-roll";
+import { AiConfigForm } from "./ai-config-form";
+
+import { useSongPlayback } from "../hooks/use-song-playback";
+import { TrackComposerDialog } from "./TrackComposerDialog";
+import { SectionRegenDialog } from "./SectionRegenDialog";
 
 // Helpers for visual color coding
 function getRoleColor(role: string): string {
@@ -135,219 +139,140 @@ function migrate1DTo2D(steps: any): boolean[][] {
   // Default empty grid
   return Array(5).fill(null).map(() => Array(16).fill(false));
 }
-// High-Precision Web Worker Timer to prevent background throttling in browsers
-let workerInstance: Worker | null = null;
-const activeWorkerCallbacks: Record<number, () => void> = {};
-let workerTimerIdCounter = 1;
 
-const getWorkerInstance = (): Worker | null => {
-  if (typeof window === "undefined") return null;
-  if (workerInstance) return workerInstance;
+interface SongGeneratorProps {
+  initialConfigs?: any[];
+}
 
-  try {
-    const blobCode = `
-      const activeTimers = {};
-      self.onmessage = function(e) {
-        const { action, id, delay } = e.data;
-        if (action === "setTimeout") {
-          activeTimers[id] = setTimeout(() => {
-            self.postMessage({ action: "trigger", id });
-            delete activeTimers[id];
-          }, delay);
-        } else if (action === "clearTimeout") {
-          if (activeTimers[id]) {
-            clearTimeout(activeTimers[id]);
-            delete activeTimers[id];
-          }
-        }
-      };
-    `;
-    const blob = new Blob([blobCode], { type: "application/javascript" });
-    workerInstance = new Worker(URL.createObjectURL(blob));
-    workerInstance.onmessage = (e) => {
-      const { action, id } = e.data;
-      if (action === "trigger") {
-        const cb = activeWorkerCallbacks[id];
-        if (cb) {
-          cb();
-          delete activeWorkerCallbacks[id];
-        }
-      }
-    };
-    return workerInstance;
-  } catch (err) {
-    console.warn("Failed to initialize background Web Worker Timer:", err);
-    return null;
-  }
-};
-
-const workerSetTimeout = (callback: () => void, delay: number): number => {
-  const worker = getWorkerInstance();
-  if (!worker) {
-    return window.setTimeout(callback, delay) as any;
-  }
-  const id = workerTimerIdCounter++;
-  activeWorkerCallbacks[id] = callback;
-  worker.postMessage({ action: "setTimeout", id, delay });
-  return id;
-};
-
-const workerClearTimeout = (id: number | null) => {
-  if (!id) return;
-  const worker = getWorkerInstance();
-  if (!worker) {
-    window.clearTimeout(id);
-    return;
-  }
-  worker.postMessage({ action: "clearTimeout", id });
-  delete activeWorkerCallbacks[id];
-};
-
-export function SongGenerator() {
-  // Alias high-precision Web Worker timers to shadow global setTimeout/clearTimeout in this scope.
-  // This automatically runs all playback and arpeggio scheduling in a non-throttled background thread.
-  const setTimeout = workerSetTimeout as any;
-  const clearTimeout = workerClearTimeout as any;
+export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [songGenProgress, setSongGenProgress] = useState<number>(0);
   const [songGenStatus, setSongGenStatus] = useState<string>("");
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [activeSong, setActiveSong] = useState<SongStructure | null>(null);
+  const activeSongRef = useRef<SongStructure | null>(null);
+  useEffect(() => {
+    activeSongRef.current = activeSong;
+  }, [activeSong]);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
-
-  // --- Web MIDI API Integration (MIDI Output Only) ---
-  const [midiOutputs, setMidiOutputs] = useState<any[]>([]);
-  const [selectedOutputId, setSelectedOutputId] = useState<string>("");
-  const [midiChannel, setMidiChannel] = useState<number>(1);
-  const [isMidiSupported, setIsMidiSupported] = useState<boolean>(false);
-  const [midiActivity, setMidiActivity] = useState<boolean>(false);
-
-  const midiAccessRef = useRef<any>(null);
-  const activeOutputPortRef = useRef<any>(null);
-  const midiChannelRef = useRef<number>(1);
-  const previouslyPlayedMidiNotesRef = useRef<number[]>([]);
-
-  // Sync MIDI Channel ref
-  useEffect(() => {
-    midiChannelRef.current = midiChannel;
-  }, [midiChannel]);
-
-  // --- MIDI Playback States ---
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSectionId, setPlaybackSectionId] = useState<string | null>(null);
-  const [playbackChordIndex, setPlaybackChordIndex] = useState<number>(-1);
-  const [playbackBpm, setPlaybackBpm] = useState<number>(80);
-  const [playbackVolume, setPlaybackVolume] = useState<number>(0.7);
-  const [playbackPreset, setPlaybackPreset] = useState<string>("grand-piano");
-  const [playbackMode, setPlaybackMode] = useState<"basic" | "rhythm" | "arpeggio" | "custom-rhythm">("basic");
-  const [selectedRhythmPattern, setSelectedRhythmPattern] = useState<string>("pop-ballad");
-  const [selectedArpeggioPattern, setSelectedArpeggioPattern] = useState<string>("up-down");
-  const [loopMode, setLoopMode] = useState<"song" | "section" | "off">("off");
-
-  // --- Custom Rhythmic Sequencer ---
-  const [customRhythmSteps, setCustomRhythmSteps] = useState<boolean[][]>(
-    Array(5).fill(null).map(() => Array(16).fill(false))
-  );
-  const [savedRhythms, setSavedRhythms] = useState<Array<{ id: string, name: string, steps: boolean[][] }>>([]);
-  const [newRhythmName, setNewRhythmName] = useState<string>("");
-  
-  const customRhythmStepsRef = useRef<boolean[][]>(Array(5).fill(null).map(() => Array(16).fill(false)));
-  const savedRhythmsRef = useRef<any[]>([]);
-  const [activePlaybackNotes, setActivePlaybackNotes] = useState<string[]>([]);
-
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const globalGainNodeRef = useRef<GainNode | null>(null);
-  const playbackTimerRef = useRef<any>(null);
-  const isPlayingRef = useRef(false);
-  const activePlaybackNotesRef = useRef<string[]>([]);
-  const playbackVolumeRef = useRef(0.7);
-  const playbackPresetRef = useRef("grand-piano");
-  const playbackModeRef = useRef<"basic" | "rhythm" | "arpeggio" | "custom-rhythm">("basic");
-  const selectedRhythmPatternRef = useRef<string>("pop-ballad");
-  const selectedArpeggioPatternRef = useRef<string>("up-down");
-  const loopModeRef = useRef<"song" | "section" | "off">("off");
-
-  const playbackBpmRef = useRef(80);
-
-  const subTimeoutsRef = useRef<any[]>([]);
-  const trackTimeoutsRef = useRef<any[]>([]);
-  const playbackWorkerRef = useRef<Worker | null>(null);
-  const activeMidiNotesRef = useRef<number[]>([]);
-
-  // Sync refs to avoid stale closures, and update master volume (Web Audio & MIDI CC) in real-time
-  useEffect(() => {
-    playbackVolumeRef.current = playbackVolume;
-    
-    // Update Web Audio Master Gain in real-time
-    if (audioContextRef.current && globalGainNodeRef.current) {
-      try {
-        const now = audioContextRef.current.currentTime;
-        globalGainNodeRef.current.gain.setTargetAtTime(playbackVolume, now, 0.01);
-      } catch (e) {
-        console.warn("Error updating global Web Audio volume:", e);
-      }
+  // Helper to automatically background-save song changes to DB
+  const saveSongBackground = async (updatedSong: SongStructure) => {
+    if (!updatedSong.id) return;
+    try {
+      await saveSongAction(updatedSong);
+    } catch (e) {
+      console.warn("Background auto-save failed:", e);
     }
+  };
 
-    // Broadcast MIDI Channel Volume (CC 7) in real-time to active MIDI output
-    if (activeOutputPortRef.current) {
-      try {
-        const out = activeOutputPortRef.current;
-        const channelIdx = midiChannelRef.current - 1; // 0 to 15
-        const volVal = Math.round(playbackVolume * 127);
-        out.send([0xB0 | channelIdx, 7, volVal]); // CC 7
-      } catch (e) {
-        console.warn("Error sending MIDI volume CC:", e);
-      }
+  const handleUpdateNote = (
+    trackId: string,
+    sectionId: string,
+    noteIndex: number,
+    updatedNote: { pitch: string; durationBeats: number; startBeat: number }
+  ) => {
+    if (!activeSong) return;
+
+    const newSong = { ...activeSong, tracks: activeSong.tracks?.map(t => ({ ...t })) || [] };
+    const track = newSong.tracks?.find((t) => t.id === trackId);
+    if (!track || !track.sectionNotes || !track.sectionNotes[sectionId]) return;
+
+    const notes = [...track.sectionNotes[sectionId]];
+    if (noteIndex >= 0 && noteIndex < notes.length) {
+      notes[noteIndex] = {
+        ...notes[noteIndex],
+        note: updatedNote.pitch,
+        durationBeats: updatedNote.durationBeats,
+        startBeat: updatedNote.startBeat
+      };
+      
+      track.sectionNotes = {
+        ...track.sectionNotes,
+        [sectionId]: notes
+      };
+
+      setActiveSong(newSong);
+      saveSongBackground(newSong);
     }
-  }, [playbackVolume, midiChannel]);
-  useEffect(() => { playbackPresetRef.current = playbackPreset; }, [playbackPreset]);
-  useEffect(() => { playbackModeRef.current = playbackMode; }, [playbackMode]);
-  useEffect(() => { selectedRhythmPatternRef.current = selectedRhythmPattern; }, [selectedRhythmPattern]);
-  useEffect(() => { selectedArpeggioPatternRef.current = selectedArpeggioPattern; }, [selectedArpeggioPattern]);
-  useEffect(() => { loopModeRef.current = loopMode; }, [loopMode]);
+  };
 
-  useEffect(() => {
-    customRhythmStepsRef.current = customRhythmSteps;
-  }, [customRhythmSteps]);
-  
-  useEffect(() => {
-    savedRhythmsRef.current = savedRhythms;
-  }, [savedRhythms]);
+  // --- useSongPlayback Hook Integration ---
+  const {
+    isPlaying,
+    playbackSectionId,
+    setPlaybackSectionId,
+    playbackChordIndex,
+    setPlaybackChordIndex,
+    playbackBpm,
+    setPlaybackBpm,
+    playbackVolume,
+    setPlaybackVolume,
+    playbackPreset,
+    setPlaybackPreset,
+    playbackMode,
+    setPlaybackMode,
+    selectedRhythmPattern,
+    setSelectedRhythmPattern,
+    selectedArpeggioPattern,
+    setSelectedArpeggioPattern,
+    loopMode,
+    setLoopMode,
+    customRhythmSteps,
+    setCustomRhythmSteps,
+    savedRhythms,
+    setSavedRhythms,
+    newRhythmName,
+    setNewRhythmName,
+    activePlaybackNotes,
+    midiOutputs,
+    selectedOutputId,
+    setSelectedOutputId,
+    midiChannel,
+    setMidiChannel,
+    isMidiSupported,
+    midiActivity,
+    applyLoadedSong,
+    stopPlayback,
+    togglePlayback,
+    startPlayback,
+    playSingleNote
+  } = useSongPlayback(activeSong, setActiveSong, saveSongBackground);
 
-  // Load saved custom rhythms from localStorage on mount
+  // Sincronizar automáticamente la sección activa seleccionada con la sección en reproducción
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem("musiclab_custom_rhythms");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const migrated = parsed.map((item: any) => ({
-            ...item,
-            steps: migrate1DTo2D(item.steps)
-          }));
-          setSavedRhythms(migrated);
-        } else {
-          // Pre-populate with a cool default groove!
-          const popGroove2D = migrate1DTo2D([
-            "both", "rest", "single", "chord", "rest", "single", "chord", "rest",
-            "bass", "rest", "single", "chord", "rest", "single", "both", "rest"
-          ]);
-          const defaultCustom = [
-            {
-              id: "groove-pop-1",
-              name: "🎸 Mi Primer Pop Groove",
-              steps: popGroove2D
-            }
-          ];
-          setSavedRhythms(defaultCustom);
-          localStorage.setItem("musiclab_custom_rhythms", JSON.stringify(defaultCustom));
-        }
-      } catch (e) {
-        console.error("Error loading custom rhythms:", e);
-      }
+    if (playbackSectionId) {
+      setActiveSectionId(playbackSectionId);
     }
-  }, []);
+  }, [playbackSectionId]);
+
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<string>("estudio");
+
+  const [visiblePianoRollTracks, setVisiblePianoRollTracks] = useState<Set<string>>(new Set());
+
+  // Database States
+  const [savedSongs, setSavedSongs] = useState<SongStructure[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingSongs, setIsLoadingSongs] = useState(false);
+
+  // Section Progress States
+  const [generatingSectionIds, setGeneratingSectionIds] = useState<Record<string, boolean>>({});
+
+  // Sinfonía AI Track Dialog states
+  const [isTrackComposerOpen, setIsTrackComposerOpen] = useState(false);
+
+  // Sinfonía AI Modular Section Regeneration states
+  const [isSectionRegenOpen, setIsSectionRegenOpen] = useState(false);
+  const [regenTrackId, setRegenTrackId] = useState<string>("");
+  const [regenSectionId, setRegenSectionId] = useState<string>("");
+
+
 
   const toggleStepNote = (rowIdx: number, stepIdx: number) => {
     const newSteps = customRhythmSteps.map((row, rIdx) => 
@@ -426,1839 +351,6 @@ export function SongGenerator() {
     }
     toast.success("Patrón rítmico eliminado.");
   };
-  useEffect(() => { playbackBpmRef.current = playbackBpm; }, [playbackBpm]);
-
-  // Synchronize playback configurations to activeSong and DB
-  useEffect(() => {
-    setActiveSong(prev => {
-      if (!prev) return null;
-
-      let hasChanges = false;
-      const updatedConfig: Partial<SongStructure> = {};
-
-      if (prev.tempo !== playbackBpm) {
-        updatedConfig.tempo = playbackBpm;
-        hasChanges = true;
-      }
-      if (prev.playbackMode !== playbackMode) {
-        updatedConfig.playbackMode = playbackMode;
-        hasChanges = true;
-      }
-      if (prev.selectedRhythmPattern !== selectedRhythmPattern) {
-        updatedConfig.selectedRhythmPattern = selectedRhythmPattern;
-        hasChanges = true;
-      }
-      if (prev.selectedArpeggioPattern !== selectedArpeggioPattern) {
-        updatedConfig.selectedArpeggioPattern = selectedArpeggioPattern;
-        hasChanges = true;
-      }
-      if (prev.playbackVolume !== playbackVolume) {
-        updatedConfig.playbackVolume = playbackVolume;
-        hasChanges = true;
-      }
-      if (prev.loopMode !== loopMode) {
-        updatedConfig.loopMode = loopMode;
-        hasChanges = true;
-      }
-
-      const isCustomStepsDifferent = () => {
-        if (!prev.customRhythmSteps) return true;
-        if (prev.customRhythmSteps.length !== customRhythmSteps.length) return true;
-        for (let r = 0; r < customRhythmSteps.length; r++) {
-          if (prev.customRhythmSteps[r].length !== customRhythmSteps[r].length) return true;
-          for (let c = 0; c < customRhythmSteps[r].length; c++) {
-            if (prev.customRhythmSteps[r][c] !== customRhythmSteps[r][c]) return true;
-          }
-        }
-        return false;
-      };
-
-      if (isCustomStepsDifferent()) {
-        updatedConfig.customRhythmSteps = customRhythmSteps;
-        hasChanges = true;
-      }
-
-      if (hasChanges) {
-        const updated = {
-          ...prev,
-          ...updatedConfig
-        };
-        activeSongRef.current = updated;
-        saveSongBackground(updated);
-        return updated;
-      }
-
-      return prev;
-    });
-  }, [
-    playbackBpm,
-    playbackMode,
-    selectedRhythmPattern,
-    selectedArpeggioPattern,
-    playbackVolume,
-    customRhythmSteps,
-    loopMode
-  ]);
-
-  // Clean up playback on unmount
-  useEffect(() => {
-    return () => {
-      if (playbackTimerRef.current) {
-        clearTimeout(playbackTimerRef.current);
-      }
-      if (playbackWorkerRef.current) {
-        playbackWorkerRef.current.postMessage({ action: "stop" });
-        playbackWorkerRef.current.terminate();
-        playbackWorkerRef.current = null;
-      }
-      subTimeoutsRef.current.forEach(clearTimeout);
-      trackTimeoutsRef.current.forEach(clearTimeout);
-
-      // Silenciar cualquier nota MIDI activa al desmontar
-      if (activeOutputPortRef.current) {
-        try {
-          const out = activeOutputPortRef.current;
-          const notesToTurnOff = Array.from(
-            new Set([...activeMidiNotesRef.current, ...previouslyPlayedMidiNotesRef.current])
-          );
-
-          notesToTurnOff.forEach((midiNum) => {
-            for (let ch = 0; ch < 16; ch++) {
-              out.send([0x80 | ch, midiNum, 0x00]);
-            }
-          });
-
-          // Enviar CC All Notes Off y All Sound Off a todos los canales
-          for (let ch = 0; ch < 16; ch++) {
-            out.send([0xB0 | ch, 123, 0]);
-            out.send([0xB0 | ch, 120, 0]);
-          }
-        } catch (e) {
-          console.warn("Error silenciando MIDI en desmontaje:", e);
-        }
-      }
-    };
-  }, []);
-
-
-
-  // Convert note name (e.g. "C3") to MIDI number
-  const noteToMidi = (noteStr: string): number => {
-    const semitones: Record<string, number> = {
-      'C': 0, 'C#': 1, 'Db': 1, 'DB': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'EB': 3, 'E': 4,
-      'F': 5, 'F#': 6, 'Gb': 6, 'GB': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'AB': 8, 'A': 9,
-      'A#': 10, 'Bb': 10, 'BB': 10, 'B': 11
-    };
-    const match = noteStr.trim().toUpperCase().match(/^([A-G][#B]?)([0-9])$/);
-    if (!match) return 60;
-    const name = match[1];
-    const octave = parseInt(match[2], 10);
-    const semitone = semitones[name] ?? 0;
-    return (octave + 1) * 12 + semitone;
-  };
-
-  // Pulse MIDI activity lamp
-  const triggerMidiActivity = () => {
-    setMidiActivity(true);
-    setTimeout(() => setMidiActivity(false), 120);
-  };
-
-  // Request MIDI Access on mount or when requested
-  const initMidi = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator.requestMIDIAccess) {
-      console.log("Web MIDI API not supported in this browser.");
-      setIsMidiSupported(false);
-      return;
-    }
-    try {
-      const access = await navigator.requestMIDIAccess();
-      midiAccessRef.current = access;
-      setIsMidiSupported(true);
-
-      const outputs = Array.from(access.outputs.values()) as any[];
-      setMidiOutputs(outputs);
-
-      // Listen for connection changes
-      access.onstatechange = () => {
-        const outs = Array.from(access.outputs.values()) as any[];
-        setMidiOutputs(outs);
-      };
-    } catch (e) {
-      console.warn("Could not access MIDI devices:", e);
-      setIsMidiSupported(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    initMidi();
-  }, [initMidi]);
-
-  // Bind selected output
-  useEffect(() => {
-    if (!midiAccessRef.current) return;
-    
-    const selectedPort = Array.from(midiAccessRef.current.outputs.values()).find(
-      (output: any) => output.id === selectedOutputId
-    ) as any;
-
-    if (selectedPort) {
-      activeOutputPortRef.current = selectedPort;
-      console.log(`MIDI Output connected: ${selectedPort.name}`);
-    } else {
-      activeOutputPortRef.current = null;
-    }
-  }, [selectedOutputId]);
-
-  // Convert note name (e.g. "C3", "Eb4") to frequency
-  const noteToFreq = (noteStr: string): number => {
-    const semitones: Record<string, number> = {
-      'C': 0, 'C#': 1, 'Db': 1, 'DB': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'EB': 3, 'E': 4,
-      'F': 5, 'F#': 6, 'Gb': 6, 'GB': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'AB': 8, 'A': 9,
-      'A#': 10, 'Bb': 10, 'BB': 10, 'B': 11
-    };
-
-    const match = noteStr.trim().toUpperCase().match(/^([A-G][#B]?)([0-9])$/);
-    if (!match) return 440;
-    const name = match[1];
-    const octave = parseInt(match[2], 10);
-    const semitone = semitones[name] ?? 0;
-    const midi = (octave + 1) * 12 + semitone;
-    return 440 * Math.pow(2, (midi - 69) / 12);
-  };
-
-  const getAudioContext = (): AudioContext => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioContextRef.current.state === "suspended") {
-      audioContextRef.current.resume();
-    }
-    return audioContextRef.current;
-  };
-
-  const playSingleNote = (noteName: string, durationMs: number, velocity: number = 1.0, startTimeMs?: number) => {
-    try {
-      const freq = noteToFreq(noteName);
-      if (!freq || isNaN(freq)) return;
-
-      const out = activeOutputPortRef.current || (midiOutputs && midiOutputs[0]);
-      if (out) {
-        try {
-          triggerMidiActivity();
-          const midiNum = noteToMidi(noteName);
-          const channelIdx = midiChannelRef.current - 1; // 0 to 15
-          
-          const scaledVelocity = Math.round(velocity * playbackVolumeRef.current * 127);
-          const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
-          
-          const start = startTimeMs !== undefined ? startTimeMs : performance.now();
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On (Hardware Precise)
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off (Hardware Precise)
-          
-          const delay = start - performance.now();
-          const visualTimeout = setTimeout(() => {
-            if (!activeMidiNotesRef.current.includes(midiNum)) {
-              activeMidiNotesRef.current.push(midiNum);
-            }
-            setActivePlaybackNotes(prev => {
-              if (prev.includes(noteName)) return prev;
-              return [...prev, noteName];
-            });
-
-            const offTimeout = setTimeout(() => {
-              activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-              setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
-            }, durationMs);
-            subTimeoutsRef.current.push(offTimeout);
-          }, Math.max(0, delay));
-          subTimeoutsRef.current.push(visualTimeout);
-        } catch (midiErr) {
-          console.warn("MIDI Output send error:", midiErr);
-        }
-      }
-      
-      // Mute internal web synth entirely
-      return;
-    } catch (e) {
-      console.error("Synth note playback error:", e);
-    }
-  };
-
-  const playTrackSingleNote = (
-    noteName: string,
-    durationMs: number,
-    velocity: number = 1.0,
-    midiChannel: number = 1,
-    instrumentPreset: string = "grand-piano",
-    startTimeMs?: number
-  ) => {
-    try {
-      const freq = noteToFreq(noteName);
-      if (!freq || isNaN(freq)) return;
-
-      const out = activeOutputPortRef.current || (midiOutputs && midiOutputs[0]);
-      if (out) {
-        try {
-          triggerMidiActivity();
-          const midiNum = noteToMidi(noteName);
-          const channelIdx = midiChannel - 1; // 0 to 15 (based on the track's configured channel!)
-
-          const scaledVelocity = Math.round(velocity * 127);
-          const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
-
-          const start = startTimeMs !== undefined ? startTimeMs : performance.now();
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On (Hardware Precise)
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off (Hardware Precise)
-
-          const delay = start - performance.now();
-          const visualTimeout = setTimeout(() => {
-            if (!activeMidiNotesRef.current.includes(midiNum)) {
-              activeMidiNotesRef.current.push(midiNum);
-            }
-
-            const offTimeout = setTimeout(() => {
-              activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-            }, durationMs);
-            trackTimeoutsRef.current.push(offTimeout);
-          }, Math.max(0, delay));
-          trackTimeoutsRef.current.push(visualTimeout);
-        } catch (midiErr) {
-          console.warn("Track MIDI Output send error:", midiErr);
-        }
-      }
-      
-      // Mute internal web synth entirely
-      return;
-    } catch (e) {
-      console.error("Synth track note playback error:", e);
-    }
-  };
-
-  const playChordNotes = (notes: string[], durationMs: number, chordIndex: number = 0, startTimeMs?: number) => {
-    if (!notes || notes.length === 0) return;
-    
-    // Clear any previous sub-timeouts to avoid overlapping
-    subTimeoutsRef.current.forEach(clearTimeout);
-    subTimeoutsRef.current = [];
-
-    const mode = playbackModeRef.current;
-
-    const baseStart = startTimeMs !== undefined ? startTimeMs : performance.now();
-    let currentDelayMs = 0;
-
-    // Local synchronous scheduler to execute notes immediately with future timestamps
-    const localSetTimeout = (callback: () => void, delay: number): any => {
-      const prevDelay = currentDelayMs;
-      currentDelayMs = prevDelay + delay;
-      callback();
-      currentDelayMs = prevDelay;
-      return 0; // dummy timer ID
-    };
-
-    // Shadow setTimeout locally for all rhythm patterns
-    const setTimeout = localSetTimeout;
-    
-    const playSingleNoteWithVisuals = (noteName: string, noteDurationMs: number, velocity: number) => {
-      playSingleNote(noteName, noteDurationMs, velocity, baseStart + currentDelayMs);
-    };
-
-    if (mode === "basic") {
-      // Modo Básico: Play all notes simultaneously for the full duration
-      notes.forEach((noteName) => {
-        playSingleNoteWithVisuals(noteName, durationMs, 1.0);
-      });
-    } else if (mode === "custom-rhythm") {
-      // Custom Step Sequencer Pattern (16 Steps in a measure)
-      const stepMs = durationMs / 16;
-      const bass = notes[0];
-      const voicing = notes.length > 1 ? notes.slice(1) : notes;
-
-      const getLowerOctave = (noteName: string): string => {
-        const matchNote = noteName.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchNote) {
-          const name = matchNote[1];
-          const octave = parseInt(matchNote[2], 10);
-          return `${name}${Math.max(1, octave - 1)}`;
-        }
-        return noteName;
-      };
-
-      const bassLower = getLowerOctave(bass);
-      let bassAlt = bassLower;
-      const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-      if (matchAlt) {
-        const name = matchAlt[1];
-        const octave = parseInt(matchAlt[2], 10);
-        bassAlt = `${name}${Math.min(1, octave)}`;
-      }
-
-      // We alternate bass octave for interest
-      const getBassNoteForStep = (stepIdx: number): string => {
-        return stepIdx % 8 >= 4 ? bassAlt : bassLower;
-      };
-
-      // Determine which custom steps array to play
-      let activeCustomSteps = customRhythmStepsRef.current;
-      const pattern = selectedRhythmPatternRef.current;
-      
-      if (pattern && pattern.startsWith("custom-")) {
-        const savedId = pattern.replace("custom-", "");
-        const found = savedRhythmsRef.current.find((r: any) => r.id === savedId);
-        if (found && found.steps) {
-          activeCustomSteps = found.steps;
-        }
-      }
-
-      // Loop over the 16 steps using 2D matrix structure
-      for (let i = 0; i < 16; i++) {
-        const activeRows: number[] = [];
-        for (let rowIdx = 0; rowIdx < 5; rowIdx++) {
-          if (activeCustomSteps[rowIdx] && activeCustomSteps[rowIdx][i]) {
-            activeRows.push(rowIdx);
-          }
-        }
-
-        if (activeRows.length === 0) continue;
-
-        subTimeoutsRef.current.push(setTimeout(() => {
-          const currentBass = getBassNoteForStep(i);
-          activeRows.forEach((rowIdx) => {
-            if (rowIdx === 0) {
-              // Bass note
-              playSingleNoteWithVisuals(currentBass, stepMs * 0.95, 1.0);
-            } else {
-              // Chord voicing note index: rowIdx - 1
-              const noteIdx = rowIdx - 1;
-              if (voicing[noteIdx]) {
-                playSingleNoteWithVisuals(voicing[noteIdx], stepMs * 0.95, 0.85);
-              }
-            }
-          });
-        }, i * stepMs));
-      }
-    } else if (mode === "rhythm") {
-      const beatMs = durationMs / 4;
-      const bass = notes[0];
-      const voicing = notes.length > 1 ? notes.slice(1) : notes;
-
-      const getLowerOctave = (noteName: string): string => {
-        const matchNote = noteName.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchNote) {
-          const name = matchNote[1];
-          const octave = parseInt(matchNote[2], 10);
-          return `${name}${Math.max(1, octave - 1)}`;
-        }
-        return noteName;
-      };
-
-      const bassLower = getLowerOctave(bass);
-      const pattern = selectedRhythmPatternRef.current;
-      const isEvenMeasure = chordIndex % 2 === 1; // Creates AB measure variation patterns
-
-      if (pattern === "pop-ballad") {
-        if (!isEvenMeasure) {
-          // A-Bar: Standard pop ballad (sustaining bass + basic chord/arpeggio pulse)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 3.8, 1.0);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.9, 0.85));
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.75));
-          }, beatMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.5, 0.8);
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.9, 0.85));
-          }, beatMs * 2));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const noteToPlay = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(noteToPlay, beatMs * 0.5, 0.8);
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const noteToPlay = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(noteToPlay, beatMs * 0.5, 0.8);
-          }, beatMs * 3));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.8));
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Beautiful Pop fill variation (rising arpeggio run + dynamic syncopation)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 3.8, 1.0);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.9, 0.9));
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.75));
-          }, beatMs));
-
-          // Cascading rising arpeggio filling beats 3 and 4
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.4, 0.8);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.8);
-          }, beatMs * 2.33));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[2] || voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.85);
-          }, beatMs * 2.66));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, beatMs * 0.5, 0.9);
-          }, beatMs * 3.0));
-
-          // Resolved chord strike on the last eighth-note
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.85));
-          }, beatMs * 3.5));
-        }
-
-      } else if (pattern === "classical-alberti") {
-        const stepMs = durationMs / 8;
-        const lowNote = bassLower;
-        const highNote = voicing[voicing.length - 1];
-        const midNote = voicing[Math.floor(voicing.length / 2)] || lowNote;
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard low-high-mid-high pattern
-          const sequence = [lowNote, highNote, midNote, highNote, lowNote, highNote, midNote, highNote];
-          sequence.forEach((noteName, i) => {
-            subTimeoutsRef.current.push(setTimeout(() => {
-              playSingleNoteWithVisuals(noteName, stepMs * 0.95, 0.85);
-            }, i * stepMs));
-          });
-        } else {
-          // B-Bar: Classical Scale-run / Cadential arpeggio variation
-          const sequence = [lowNote, midNote, highNote, midNote, lowNote, midNote, highNote, highNote];
-          sequence.forEach((noteName, i) => {
-            const vel = i === 7 ? 0.95 : 0.8;
-            const durationMultiplier = i === 7 ? 1.4 : 0.95;
-            subTimeoutsRef.current.push(setTimeout(() => {
-              playSingleNoteWithVisuals(noteName, stepMs * durationMultiplier, vel);
-            }, i * stepMs));
-          });
-        }
-
-      } else if (pattern === "neo-soul-arpeggio") {
-        const stepMs = beatMs / 2; // 8th note
-        if (!isEvenMeasure) {
-          // A-Bar: Standard neo-soul (warm blocks on 1 & 3, arpeggios on 2 & 4)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.95);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 1.4, 0.9));
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[Math.floor(voicing.length / 2)] || voicing[0];
-            playSingleNoteWithVisuals(note, stepMs * 1.5, 0.8);
-          }, beatMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, stepMs * 1.5, 0.8);
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.85);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 1.4, 0.8));
-          }, beatMs * 2));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, stepMs * 1.2, 0.75);
-          }, beatMs * 3));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[Math.floor(voicing.length / 2)] || voicing[0];
-            playSingleNoteWithVisuals(note, stepMs * 1.2, 0.75);
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Beautiful neo-soul variation with jazzy grace notes (slide / hammer-on effect)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            // Warm strummed chord at the start
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.95);
-            voicing.forEach((n, idx) => {
-              setTimeout(() => playSingleNoteWithVisuals(n, beatMs * 1.4, 0.9), idx * 25);
-            });
-          }, 0));
-
-          // Beat 2: Jazzy grace-note slide (two notes played extremely close together)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const graceNote = voicing[0];
-            const targetNote = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(graceNote, stepMs * 0.4, 0.75);
-            setTimeout(() => {
-              playSingleNoteWithVisuals(targetNote, stepMs * 1.1, 0.85);
-            }, 40);
-          }, beatMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, stepMs * 1.5, 0.8);
-          }, beatMs * 1.5));
-
-          // Beat 3: Warm chord strike
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.85);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 1.4, 0.8));
-          }, beatMs * 2));
-
-          // Beat 4: Descending jazzy sweep fill
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const topNote = voicing[voicing.length - 1];
-            const midNote = voicing[Math.floor(voicing.length / 2)] || voicing[0];
-            const lowNote = voicing[0];
-            playSingleNoteWithVisuals(topNote, stepMs * 0.8, 0.75);
-            setTimeout(() => playSingleNoteWithVisuals(midNote, stepMs * 0.8, 0.75), 60);
-            setTimeout(() => playSingleNoteWithVisuals(lowNote, stepMs * 0.8, 0.8), 120);
-          }, beatMs * 3));
-        }
-
-      } else if (pattern === "bossa-nova") {
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const noteName = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${noteName}${Math.max(1, octave)}`;
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard Brazilian bossa syncopation
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.2, 1.0);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.9));
-          }, beatMs * 0.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.7, 0.8);
-              }, idx * 30);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.2, 0.9);
-          }, beatMs * 2));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.85));
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.4, 0.75);
-              }, idx * 30);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Bossa Nova variation with dynamic swing chords (mambo-bossa style)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.2, 1.0);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.9));
-          }, beatMs * 0.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.8, 0.85));
-          }, beatMs * 1.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.2, 0.9);
-          }, beatMs * 2.0));
-
-          // Triple off-beat chords at the end to create Latin anticipation
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.85));
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.9));
-          }, beatMs * 3.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.8));
-          }, beatMs * 3.5));
-        }
-
-      } else if (pattern === "lofi-chill") {
-        if (!isEvenMeasure) {
-          // A-Bar: Standard slow elegant strum over deep bass and ambient echo
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 3.9, 0.9);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 2.5, 0.8);
-              }, idx * 60);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 0.25));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const topNote = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(topNote, beatMs * 1.0, 0.45);
-          }, beatMs * 2.5));
-        } else {
-          // B-Bar: Dreamy reversed strum and high-filter echo variation
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 3.9, 0.9);
-          }, 0));
-
-          // Reversed slow strum (high-to-low note order) for a dreamy vinyl-rewind feel
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const reversedVoicing = [...voicing].reverse();
-            reversedVoicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 2.5, 0.75);
-              }, idx * 60);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 0.25));
-
-          // Magical dual-tone echo (recreating jazzy chord extensions) on beat 3
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const topNote = voicing[voicing.length - 1];
-            const extensionNote = voicing[voicing.length - 2] || voicing[0];
-            playSingleNoteWithVisuals(topNote, beatMs * 1.0, 0.4);
-            playSingleNoteWithVisuals(extensionNote, beatMs * 1.0, 0.35);
-          }, beatMs * 2.5));
-        }
-
-      } else if (pattern === "salsa-tumbao") {
-        const highNote = voicing[voicing.length - 1];
-        const innerVoicing = voicing.length > 1 ? voicing.slice(0, voicing.length - 1) : voicing;
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.max(1, octave)}`;
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard Salsa Tumbao (Montuno 1)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.2, 1.0);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.4, 1.0);
-          }, beatMs * 0.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            innerVoicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.9));
-          }, beatMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.4, 1.0);
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.2, 0.95);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.4, 1.0);
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            innerVoicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.9));
-          }, beatMs * 3.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.4, 1.0);
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Salsa Tumbao Variation (Montuno 2 - Blazing Octave Punch & Fills)
-          // Hits powerful double-octave punches on off-beats with walking octave fills
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.2, 1.0);
-          }, 0));
-
-          // Beat 1.5: Blazing double-octave punch (playing top and lowest note of voicing)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.45, 1.0);
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.45, 0.95);
-          }, beatMs * 0.5));
-
-          // Beat 2.0: Inner block
-          subTimeoutsRef.current.push(setTimeout(() => {
-            innerVoicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.4, 0.9));
-          }, beatMs * 1.0));
-
-          // Beat 2.5: High punch
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.4, 1.0);
-          }, beatMs * 1.5));
-
-          // Beat 3.0: Dynamic double-bass roll
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 0.6, 0.95);
-            setTimeout(() => {
-              playSingleNoteWithVisuals(bassLower, beatMs * 0.6, 0.9);
-            }, beatMs * 0.5);
-          }, beatMs * 2.0));
-
-          // Beat 3.5: Double-octave punch
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(highNote, beatMs * 0.45, 1.0);
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.45, 0.95);
-          }, beatMs * 2.5));
-
-          // Beat 4.0 & 4.5: Downward rolling octave montuno fill
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const mid = voicing[Math.floor(voicing.length / 2)] || voicing[0];
-            playSingleNoteWithVisuals(mid, beatMs * 0.4, 0.85);
-          }, beatMs * 3.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.4, 0.9);
-          }, beatMs * 3.5));
-        }
-
-      } else if (pattern === "bachata-bolero") {
-        const stepMs = durationMs / 8; // 8th notes
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.max(1, octave)}`;
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard fluid constant bachata arpeggio
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, stepMs * 1.8, 1.0);
-          }, 0));
-
-          const arpeggioFlow = [voicing[0], voicing[1] || voicing[0], voicing[voicing.length - 1], voicing[0], voicing[1] || voicing[0]];
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(arpeggioFlow[0], stepMs * 0.8, 0.85);
-          }, stepMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(arpeggioFlow[1], stepMs * 0.8, 0.8);
-          }, stepMs * 2));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(arpeggioFlow[2], stepMs * 0.8, 0.85);
-          }, stepMs * 3));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, stepMs * 1.8, 0.95);
-          }, stepMs * 4));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(arpeggioFlow[3], stepMs * 0.8, 0.8);
-          }, stepMs * 5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(arpeggioFlow[4], stepMs * 0.8, 0.85);
-          }, stepMs * 6));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.8, 0.8);
-          }, stepMs * 7));
-        } else {
-          // B-Bar: Bachata Majao swing section fill! Sharp staccato double-stops on offbeats
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, stepMs * 1.8, 1.0);
-          }, 0));
-
-          // In majao section, the piano hits sharp double notes on beats 1.5, 2.5, 3.5, 4.5
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.6, 0.9);
-            playSingleNoteWithVisuals(voicing[voicing.length - 1], stepMs * 0.6, 0.9);
-          }, stepMs));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.6, 0.85);
-            playSingleNoteWithVisuals(voicing[voicing.length - 2] || voicing[0], stepMs * 0.6, 0.85);
-          }, stepMs * 2));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.6, 0.9);
-            playSingleNoteWithVisuals(voicing[voicing.length - 1], stepMs * 0.6, 0.9);
-          }, stepMs * 3));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, stepMs * 1.8, 0.95);
-          }, stepMs * 4));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.6, 0.85);
-            playSingleNoteWithVisuals(voicing[voicing.length - 1], stepMs * 0.6, 0.85);
-          }, stepMs * 5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            // Blazing triplet arpeggio fill at the end of the majao bar
-            playSingleNoteWithVisuals(voicing[0], stepMs * 0.5, 0.8);
-            setTimeout(() => playSingleNoteWithVisuals(voicing[1] || voicing[0], stepMs * 0.5, 0.8), stepMs * 0.33);
-            setTimeout(() => playSingleNoteWithVisuals(voicing[voicing.length - 1], stepMs * 0.5, 0.85), stepMs * 0.66);
-          }, stepMs * 6));
-        }
-
-      } else if (pattern === "reggaeton-dembow") {
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.max(1, octave)}`;
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard Reggaeton Dembow rhythm with cascading arpeggios
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.5, 1.0);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.95));
-          }, beatMs * 0.75));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.4, 0.85);
-              }, idx * 25);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.5, 0.9);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.9));
-          }, beatMs * 2.75));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.4, 0.8);
-              }, idx * 25);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Urban Dembow Fill variation (slamming offbeats + triple-stroke chord rolls on Beat 4)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.5, 1.0);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.95));
-          }, beatMs * 0.75));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.9));
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.5, 0.9);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.85));
-          }, beatMs * 2.75));
-
-          // Blazing high-energy triple-stroke dembow fill ending on Beat 4
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.35, 0.9));
-          }, beatMs * 3.25));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.35, 0.95));
-          }, beatMs * 3.50));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.35, 1.0));
-          }, beatMs * 3.75));
-        }
-
-      } else if (pattern === "bolero-romantico") {
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.max(1, octave)}`;
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard slow strum + elegant romantic bolero flow
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.95);
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.8, 0.8);
-              }, idx * 40);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 0.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.75);
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.8, 0.85);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.75);
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.7);
-          }, beatMs * 3.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.4, 0.75);
-          }, beatMs * 3.5));
-        } else {
-          // B-Bar: Bolero Rubato variation with warm romantic grace turn on beat 2.5
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 0.95);
-          }, 0));
-
-          // Soft rolled block chord
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              const strumTimeout = setTimeout(() => {
-                playSingleNoteWithVisuals(n, beatMs * 0.8, 0.8);
-              }, idx * 30);
-              subTimeoutsRef.current.push(strumTimeout);
-            });
-          }, beatMs * 0.5));
-
-          // Romantic grace turn (fast triplet triplet notes) on Beat 2.5
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const n0 = voicing[0];
-            const n1 = voicing[1] || voicing[0];
-            const n2 = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(n0, beatMs * 0.3, 0.75);
-            setTimeout(() => playSingleNoteWithVisuals(n1, beatMs * 0.3, 0.75), 50);
-            setTimeout(() => playSingleNoteWithVisuals(n2, beatMs * 0.5, 0.8), 100);
-          }, beatMs * 1.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bassAlt, beatMs * 1.8, 0.85);
-          }, beatMs * 2.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[voicing.length - 2] || voicing[0];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.75);
-          }, beatMs * 2.5));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const note = voicing[1] || voicing[0];
-            playSingleNoteWithVisuals(note, beatMs * 0.4, 0.7);
-          }, beatMs * 3.0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(voicing[0], beatMs * 0.4, 0.75);
-          }, beatMs * 3.5));
-        }
-
-      } else if (pattern === "jazz-swing") {
-        // Jazz Swing Walk: Walking bassline on all 4 quarter beats with syncopated right hand comping
-        // Determine walking bass notes
-        let bassAlt = bassLower;
-        let bassWalk3 = bassLower;
-        let bassWalk4 = bassLower;
-        
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          // Scale degree walking notes
-          bassAlt = `${name}${Math.min(1, octave)}`; // Perfect fifth or octave up
-          // Create simple chromatic walking steps:
-          const nextNoteLetter = name === "G" ? "A" : String.fromCharCode(name.charCodeAt(0) + 1);
-          bassWalk3 = `${nextNoteLetter}${Math.max(1, octave - 1)}`;
-          bassWalk4 = `${name}#${Math.max(1, octave - 1)}`;
-        }
-
-        // Walking Bass scheduled on every Beat (1, 2, 3, 4)
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassLower, beatMs * 0.9, 0.95), 0));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassAlt, beatMs * 0.9, 0.85), beatMs));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassWalk3, beatMs * 0.9, 0.85), beatMs * 2));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassWalk4, beatMs * 0.9, 0.9), beatMs * 3));
-
-        if (!isEvenMeasure) {
-          // A-Bar: Standard swing comping (Beat 1.0 and Beat 2.66 - swing offbeat)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.6, 0.85));
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.5, 0.8));
-          }, beatMs * 1.66)); // Triplet swing feel
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.6, 0.85));
-          }, beatMs * 3.0));
-        } else {
-          // B-Bar: Dynamic swing variation (Charleston comping rhythm on Beat 1.0 and Beat 2.5)
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.6, 0.9));
-          }, 0));
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.6, 0.85));
-          }, beatMs * 1.5)); // Charleston syncopation pulse
-
-          subTimeoutsRef.current.push(setTimeout(() => {
-            // Fast jazz triplet roll right before the end
-            voicing.forEach((n, idx) => {
-              setTimeout(() => playSingleNoteWithVisuals(n, beatMs * 0.35, 0.75), idx * 25);
-            });
-          }, beatMs * 3.66));
-        }
-
-      } else if (pattern === "boogie-woogie") {
-        // Rock / Boogie-Woogie: Driving eighth-note octave bass walks with downbeat slamming chords
-        let bassWalk: string[] = [bassLower];
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          const root = `${name}${Math.max(1, octave - 1)}`;
-          const fifth = `${name === "C" ? "G" : "D"}${Math.max(1, octave - 1)}`; // Approximation for standard keys
-          const sixth = `${name === "C" ? "A" : "E"}${Math.max(1, octave - 1)}`;
-          bassWalk = [root, root, fifth, fifth, sixth, sixth, fifth, fifth];
-        }
-
-        // Schedule driving 8th-note bassline
-        const stepMs = durationMs / 8;
-        for (let i = 0; i < 8; i++) {
-          const note = bassWalk[i % bassWalk.length] || bassLower;
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(note, stepMs * 0.8, 1.0);
-          }, i * stepMs));
-        }
-
-        if (!isEvenMeasure) {
-          // A-Bar: Slamming rock chords on the main beats 1, 2, 3, 4
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.95)), 0));
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.9)), beatMs));
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.9)), beatMs * 2));
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.95)), beatMs * 3));
-        } else {
-          // B-Bar: Boogie variation (Slamming rock chords + blazing eighth-note rock arpeggio fill on beats 3.5 & 4)
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.95)), 0));
-          subTimeoutsRef.current.push(setTimeout(() => voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 1.5, 0.9)), beatMs));
-
-          // Blazing rock & roll piano arpeggio lick cascading up
-          subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(voicing[0], stepMs * 0.9, 0.85), beatMs * 2.0));
-          subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(voicing[1] || voicing[0], stepMs * 0.9, 0.85), beatMs * 2.5));
-          subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(voicing[voicing.length - 1], stepMs * 0.9, 0.9), beatMs * 3.0));
-          subTimeoutsRef.current.push(setTimeout(() => {
-            // High octave slide finish
-            const highName = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(highName, stepMs * 1.6, 1.0);
-          }, beatMs * 3.5));
-        }
-
-      } else if (pattern === "funk-clav") {
-        const stepMs = durationMs / 16; // 16th notes
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.min(1, octave)}`;
-        }
-
-        // Schedule syncopated walking bass
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassLower, stepMs * 2.8, 1.0), 0));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassAlt, stepMs * 2.8, 0.9), beatMs));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassLower, stepMs * 2.8, 0.95), beatMs * 2));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassAlt, stepMs * 2.8, 0.9), beatMs * 3));
-
-        if (!isEvenMeasure) {
-          // A-Bar: Staccato funk clav comping
-          const hits = [2, 5, 8, 11, 14]; // 16th note indexes
-          hits.forEach((hIndex) => {
-            subTimeoutsRef.current.push(setTimeout(() => {
-              voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 0.9, 0.95));
-            }, hIndex * stepMs));
-          });
-        } else {
-          // B-Bar: Faster funk response with syncopated double strikes
-          const hits = [2, 4, 7, 10, 12, 14];
-          hits.forEach((hIndex) => {
-            subTimeoutsRef.current.push(setTimeout(() => {
-              voicing.forEach(n => playSingleNoteWithVisuals(n, stepMs * 0.8, 0.9));
-            }, hIndex * stepMs));
-          });
-        }
-
-      } else if (pattern === "ambient-drone") {
-        // Slow swelling cinematic block drone
-        const slowStrum = (notesArray: string[], delay: number) => {
-          notesArray.forEach((n, idx) => {
-            const strumTimeout = setTimeout(() => {
-              playSingleNoteWithVisuals(n, durationMs * 0.9, 0.65);
-            }, idx * 60 + delay);
-            subTimeoutsRef.current.push(strumTimeout);
-          });
-        };
-        
-        // Deep bass note holding all bar
-        subTimeoutsRef.current.push(setTimeout(() => {
-          playSingleNoteWithVisuals(bassLower, durationMs * 0.95, 0.7);
-        }, 0));
-
-        // Soft cascading block chord strum
-        slowStrum(voicing, 120);
-
-        if (isEvenMeasure) {
-          // Subtle higher harmony echo halfway
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const topNote = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(topNote, beatMs * 1.8, 0.45);
-          }, beatMs * 2));
-        }
-
-      } else if (pattern === "cumbia-colombiana") {
-        // Cumbia Colombiana: Traditional "contratiempo" key strikes
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.min(1, octave)}`;
-        }
-
-        // Bass on all four beats (1, 2, 3, 4) walking between root and fifth
-        const bassCumbia = [bassLower, bassAlt, bassLower, bassAlt];
-        bassCumbia.forEach((bNote, idx) => {
-          subTimeoutsRef.current.push(setTimeout(() => {
-            playSingleNoteWithVisuals(bNote, beatMs * 0.7, 0.95);
-          }, idx * beatMs));
-        });
-
-        // Sharp staccato off-beat chord comping (hits on beat 1.5, 2.5, 3.5, 4.5)
-        const compTimes = [beatMs * 0.5, beatMs * 1.5, beatMs * 2.5, beatMs * 3.5];
-        compTimes.forEach((time) => {
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.35, 0.95));
-          }, time));
-        });
-
-        if (isEvenMeasure) {
-          // B-Bar: Beautiful double-octave melodic pickup sweep at the end
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const highNote = voicing[voicing.length - 1];
-            const lowerHighNote = voicing[0];
-            playSingleNoteWithVisuals(lowerHighNote, beatMs * 0.4, 0.85);
-            setTimeout(() => playSingleNoteWithVisuals(highNote, beatMs * 0.4, 0.95), 100);
-          }, beatMs * 3.7));
-        }
-
-      } else if (pattern === "edm-house") {
-        // EDM / House: Driving 4-on-the-floor block comping with dynamic sixteenth syncopation
-        // Slamming beats on 1, 2, 3, 4
-        for (let i = 0; i < 4; i++) {
-          subTimeoutsRef.current.push(setTimeout(() => {
-            // Bass + chord strike together
-            playSingleNoteWithVisuals(bassLower, beatMs * 0.65, 1.0);
-            voicing.forEach(n => playSingleNoteWithVisuals(n, beatMs * 0.65, 0.95));
-          }, i * beatMs));
-        }
-
-        // Sidechain / offbeat pumping: dynamic sixteenth note high octave bounces
-        const bounceTimes = [beatMs * 0.75, beatMs * 1.75, beatMs * 2.75, beatMs * 3.75];
-        bounceTimes.forEach((time) => {
-          subTimeoutsRef.current.push(setTimeout(() => {
-            const highNote = voicing[voicing.length - 1];
-            playSingleNoteWithVisuals(highNote, beatMs * 0.3, 0.75);
-          }, time));
-        });
-
-      } else if (pattern === "rb-trap-soul") {
-        const stepMs = durationMs / 16;
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.min(1, octave)}`;
-        }
-
-        // Strummed chords on 1 and 3
-        subTimeoutsRef.current.push(setTimeout(() => {
-          playSingleNoteWithVisuals(bassLower, beatMs * 1.8, 1.0);
-          voicing.forEach((n, idx) => {
-            setTimeout(() => playSingleNoteWithVisuals(n, beatMs * 1.6, 0.9), idx * 30);
-          });
-        }, 0));
-
-        subTimeoutsRef.current.push(setTimeout(() => {
-          playSingleNoteWithVisuals(bassAlt, beatMs * 1.8, 0.9);
-          voicing.forEach((n, idx) => {
-            setTimeout(() => playSingleNoteWithVisuals(n, beatMs * 1.6, 0.85), idx * 30);
-          });
-        }, beatMs * 2));
-
-        if (!isEvenMeasure) {
-          // A-Bar: Rapid rolling trap-hat simulated sweep on Beat 4 (16th notes index 12-15)
-          const rollTimes = [12, 13, 14, 15];
-          rollTimes.forEach((rIndex, idx) => {
-            subTimeoutsRef.current.push(setTimeout(() => {
-              const note = voicing[idx % voicing.length];
-              playSingleNoteWithVisuals(note, stepMs * 0.9, 0.8);
-            }, rIndex * stepMs));
-          });
-        } else {
-          // B-Bar: Beautiful double-time rolling arpeggio fill
-          const rollTimes = [12, 13.5, 14, 15];
-          rollTimes.forEach((rIndex, idx) => {
-            subTimeoutsRef.current.push(setTimeout(() => {
-              const note = voicing[(voicing.length - 1 - idx) % voicing.length];
-              playSingleNoteWithVisuals(note, stepMs * 0.9, 0.85);
-            }, rIndex * stepMs));
-          });
-        }
-
-      } else if (pattern === "flamenco-rumba") {
-        // Flamenco / Rumba Catalan: Strumming ventilador simulation
-        const stepMs = durationMs / 8;
-        let bassAlt = bassLower;
-        const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchAlt) {
-          const name = matchAlt[1];
-          const octave = parseInt(matchAlt[2], 10);
-          bassAlt = `${name}${Math.min(1, octave)}`;
-        }
-
-        // Root bass strike on beat 1.0 and 3.0
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassLower, beatMs * 0.9, 1.0), 0));
-        subTimeoutsRef.current.push(setTimeout(() => playSingleNoteWithVisuals(bassAlt, beatMs * 0.9, 0.9), beatMs * 2));
-
-        const strumBlock = (time: number, velocity: number) => {
-          voicing.forEach((n, idx) => {
-            setTimeout(() => playSingleNoteWithVisuals(n, stepMs * 0.8, velocity), idx * 20);
-          });
-        };
-
-        // Triplet strumming sweeps on beat 1.5, 2.0, 3.5, 4.0
-        subTimeoutsRef.current.push(setTimeout(() => strumBlock(beatMs * 0.5, 0.85), beatMs * 0.5));
-        subTimeoutsRef.current.push(setTimeout(() => strumBlock(beatMs * 1.0, 0.95), beatMs * 1.0));
-        subTimeoutsRef.current.push(setTimeout(() => strumBlock(beatMs * 2.5, 0.85), beatMs * 2.5));
-        subTimeoutsRef.current.push(setTimeout(() => strumBlock(beatMs * 3.0, 1.0), beatMs * 3.0));
-
-        if (isEvenMeasure) {
-          // B-Bar: Aggressive flamenco roll response at the end of the bar
-          subTimeoutsRef.current.push(setTimeout(() => {
-            voicing.forEach((n, idx) => {
-              setTimeout(() => playSingleNoteWithVisuals(n, stepMs * 0.5, 1.0), idx * 25);
-            });
-          }, beatMs * 3.5));
-        }
-      }
-
-    } else if (mode === "arpeggio") {
-      // Modo Arpegios: Premium arpeggiator engine supporting diverse styles
-      const beatMs = durationMs / 4;
-      const stepMs = durationMs / 8; // 8th note duration
-
-      const bass = notes[0];
-      let bassLower = bass;
-      const match = bass.match(/^([A-G][#b]?)([0-9])$/i);
-      if (match) {
-        const noteName = match[1];
-        const octave = parseInt(match[2], 10);
-        bassLower = `${noteName}${Math.max(1, octave - 1)}`;
-      }
-
-      // Helper to shift octaves dynamically
-      const getNoteWithOctaveShift = (noteStr: string, shift: number): string => {
-        const matchNote = noteStr.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchNote) {
-          const name = matchNote[1];
-          const octave = parseInt(matchNote[2], 10);
-          return `${name}${Math.max(1, Math.min(8, octave + shift))}`;
-        }
-        return noteStr;
-      };
-
-      // 1. Play deep sustaining bass note at t = 0
-      const bassTimeout = setTimeout(() => {
-        playSingleNoteWithVisuals(bassLower, beatMs * 3.8, 0.95);
-      }, 0);
-      subTimeoutsRef.current.push(bassTimeout);
-
-      // 2. Select pattern
-      const pattern = selectedArpeggioPatternRef.current;
-      const voicing = notes.length > 1 ? notes.slice(1) : notes;
-      const len = voicing.length;
-
-      if (pattern === "cascade") {
-        // Fast 16th-note sweep across octaves (16 steps!)
-        const fastStepMs = durationMs / 16;
-        const cascadeSequence: string[] = [];
-
-        // Build cascading sequence:
-        // Beat 1: Voicing normal (Up)
-        for (let i = 0; i < 4; i++) {
-          cascadeSequence.push(voicing[i % len]);
-        }
-        // Beat 2: Voicing shifted 1 octave up (Up)
-        for (let i = 0; i < 4; i++) {
-          cascadeSequence.push(getNoteWithOctaveShift(voicing[i % len], 1));
-        }
-        // Beat 3: Voicing shifted 1 octave up (Down)
-        for (let i = 0; i < 4; i++) {
-          cascadeSequence.push(getNoteWithOctaveShift(voicing[(len - 1 - i) % len] || voicing[0], 1));
-        }
-        // Beat 4: Voicing normal (Down)
-        for (let i = 0; i < 4; i++) {
-          cascadeSequence.push(voicing[(len - 1 - i) % len] || voicing[0]);
-        }
-
-        cascadeSequence.forEach((noteName, i) => {
-          const stepTimeout = setTimeout(() => {
-            playSingleNoteWithVisuals(noteName, fastStepMs * 1.15, 0.8);
-          }, i * fastStepMs);
-          subTimeoutsRef.current.push(stepTimeout);
-        });
-
-      } else {
-        // Standard 8th-note arpeggiator patterns
-        const arpeggioSequence: string[][] = [];
-
-        if (pattern === "up") {
-          for (let i = 0; i < 8; i++) {
-            arpeggioSequence.push([voicing[i % len]]);
-          }
-        } else if (pattern === "down") {
-          for (let i = 0; i < 8; i++) {
-            arpeggioSequence.push([voicing[(len - 1 - i) % len] || voicing[0]]);
-          }
-        } else if (pattern === "down-up") {
-          let dir = -1;
-          let idx = len - 1;
-          for (let i = 0; i < 8; i++) {
-            arpeggioSequence.push([voicing[idx]]);
-            idx += dir;
-            if (idx === 0) {
-              dir = 1;
-            } else if (idx === len - 1) {
-              dir = -1;
-            }
-          }
-        } else if (pattern === "cross") {
-          // Cross spiral arpeggio: Alternates outer and inner notes
-          for (let i = 0; i < 8; i++) {
-            const step = i % 4;
-            if (step === 0) arpeggioSequence.push([voicing[0]]);
-            else if (step === 1) arpeggioSequence.push([voicing[len - 1]]);
-            else if (step === 2) arpeggioSequence.push([voicing[Math.max(0, Math.min(len - 1, 1))]]);
-            else arpeggioSequence.push([voicing[Math.max(0, Math.min(len - 1, len - 2))]]);
-          }
-        } else if (pattern === "double-strike") {
-          // Double note strikes at each arpeggio step
-          for (let i = 0; i < 8; i++) {
-            const idx1 = i % len;
-            const idx2 = (i + 1) % len;
-            arpeggioSequence.push([voicing[idx1], voicing[idx2]]);
-          }
-        } else if (pattern === "random") {
-          for (let i = 0; i < 8; i++) {
-            const rIndex = Math.floor(Math.random() * len);
-            arpeggioSequence.push([voicing[rIndex]]);
-          }
-        } else {
-          // Default: "up-down" Triangle
-          let dir = 1;
-          let idx = 0;
-          for (let i = 0; i < 8; i++) {
-            arpeggioSequence.push([voicing[idx]]);
-            idx += dir;
-            if (idx === len - 1) {
-              dir = -1;
-            } else if (idx === 0) {
-              dir = 1;
-            }
-          }
-        }
-
-        // Schedule standard 8th note steps
-        arpeggioSequence.forEach((stepNotes, i) => {
-          const stepTimeout = setTimeout(() => {
-            stepNotes.forEach(noteName => {
-              playSingleNoteWithVisuals(noteName, stepMs * 1.15, 0.8);
-            });
-          }, i * stepMs);
-          subTimeoutsRef.current.push(stepTimeout);
-        });
-      }
-    }
-  };
-
-  const getPlayableChords = useCallback((song: SongStructure): PlayableChord[] => {
-    const list: PlayableChord[] = [];
-    let globalIndex = 0;
-    song.sections.forEach((sect) => {
-      if (sect.chords && sect.chords.chords) {
-        sect.chords.chords.forEach((chord, chordIdx) => {
-          list.push({
-            chordName: chord.chord,
-            notes: chord.pianoNotes || [],
-            sectionId: sect.id,
-            sectionType: sect.type,
-            chordIndexInSection: chordIdx,
-            globalIndex: globalIndex++,
-          });
-        });
-      }
-    });
-    return list;
-  }, []);
-
-  const stopPlayback = useCallback(() => {
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    if (playbackTimerRef.current) {
-      clearTimeout(playbackTimerRef.current);
-      playbackTimerRef.current = null;
-    }
-    if (playbackWorkerRef.current) {
-      playbackWorkerRef.current.postMessage({ action: "stop" });
-      playbackWorkerRef.current.terminate();
-      playbackWorkerRef.current = null;
-    }
-    
-    // Clear all scheduled rhythmic and arpeggio sub-timeouts
-    subTimeoutsRef.current.forEach(clearTimeout);
-    subTimeoutsRef.current = [];
-
-    // Clear track note timeouts
-    trackTimeoutsRef.current.forEach(clearTimeout);
-    trackTimeoutsRef.current = [];
-
-    setPlaybackChordIndex(-1);
-    setPlaybackSectionId(null);
-    setActivePlaybackNotes([]);
-    activePlaybackNotesRef.current = [];
-
-    // Send MIDI Note Off and CC Panic messages to all 16 channels for complete silencing
-    if (activeOutputPortRef.current) {
-      try {
-        const out = activeOutputPortRef.current;
-        triggerMidiActivity();
-
-        // 1. Recopilar todas las notas activas o previamente reproducidas y enviar Note Off
-        const notesToTurnOff = Array.from(
-          new Set([...activeMidiNotesRef.current, ...previouslyPlayedMidiNotesRef.current])
-        );
-
-        notesToTurnOff.forEach((midiNum) => {
-          for (let ch = 0; ch < 16; ch++) {
-            out.send([0x80 | ch, midiNum, 0x00]); // Note Off en todos los canales
-          }
-        });
-
-        // 2. Enviar CC All Notes Off (CC 123) y All Sound Off (CC 120) a todos los canales
-        for (let ch = 0; ch < 16; ch++) {
-          out.send([0xB0 | ch, 123, 0]);
-          out.send([0xB0 | ch, 120, 0]);
-        }
-      } catch (e) {
-        console.warn("Error enviando apagado completo de MIDI:", e);
-      }
-      activeMidiNotesRef.current = [];
-      previouslyPlayedMidiNotesRef.current = [];
-    }
-  }, []);
-
-  const startPlayback = useCallback(() => {
-    if (!activeSong) return;
-    
-    const playableChords = getPlayableChords(activeSong);
-    if (playableChords.length === 0) {
-      toast.error("No hay acordes generados en esta canción para reproducir.");
-      return;
-    }
-
-    getAudioContext();
-
-    setIsPlaying(true);
-    isPlayingRef.current = true;
-
-    // Clear all previously scheduled timeouts
-    subTimeoutsRef.current.forEach(clearTimeout);
-    subTimeoutsRef.current = [];
-    trackTimeoutsRef.current.forEach(clearTimeout);
-    trackTimeoutsRef.current = [];
-
-    // Initialize Web Worker metronome for background playback
-    if (playbackWorkerRef.current) {
-      playbackWorkerRef.current.terminate();
-    }
-    try {
-      const blobCode = `
-        let timerId = null;
-        self.onmessage = function(e) {
-          if (e.data.action === "start") {
-            if (timerId) clearTimeout(timerId);
-            timerId = setTimeout(() => {
-              self.postMessage("tick");
-            }, e.data.delay);
-          } else if (e.data.action === "stop") {
-            if (timerId) {
-              clearTimeout(timerId);
-              timerId = null;
-            }
-          }
-        };
-      `;
-      const blob = new Blob([blobCode], { type: "text/javascript" });
-      const workerUrl = URL.createObjectURL(blob);
-      playbackWorkerRef.current = new Worker(workerUrl);
-    } catch (err) {
-      console.warn("Could not instantiate Web Worker for playback, falling back to standard setTimeout.", err);
-      playbackWorkerRef.current = null;
-    }
-
-    // Start from active chord if possible, else from beginning
-    let startIdx = 0;
-    if (activeSectionId && playbackChordIndex >= 0) {
-      const foundIdx = playableChords.findIndex(
-        c => c.sectionId === activeSectionId && c.chordIndexInSection === playbackChordIndex
-      );
-      if (foundIdx !== -1) {
-        startIdx = foundIdx;
-      }
-    }
-
-    const runPlaybackStep = (currentIdx: number) => {
-      if (!isPlayingRef.current) return;
-
-      const chord = playableChords[currentIdx];
-      if (!chord) {
-        const currentLoop = loopModeRef.current;
-        if (currentLoop === "song") {
-          runPlaybackStep(0);
-        } else {
-          stopPlayback();
-          toast.info("Fin de la reproducción de la canción.");
-        }
-        return;
-      }
-
-      // Update UI states
-      setPlaybackSectionId(chord.sectionId);
-      setPlaybackChordIndex(chord.chordIndexInSection);
-      setActiveSectionId(chord.sectionId);
-      
-      const currentBpm = playbackBpmRef.current;
-      const beatDurationSec = 60 / currentBpm;
-      const chordDurationMs = beatDurationSec * 4 * 1000; // 4 beats per chord
-      const startTimeMs = performance.now();
-      
-      // Determine if any track is soloed
-      const anySoloed = activeSongRef.current?.tracks?.some(t => t.soloed === true) || false;
-      
-      // Chords play only if there is no track soloed (or if they are un-soloed they are muted, just like standard DAW)
-      if (!anySoloed) {
-        playChordNotes(chord.notes, chordDurationMs, chord.globalIndex, startTimeMs);
-      }
-
-      // Reproducir pistas melódicas/instrumentales en paralelo (Soporte Global de Canción y Fallback de Sección)
-      if (activeSongRef.current) {
-        const currentChordStart = chord.chordIndexInSection * 4;
-        const currentChordEnd = currentChordStart + 4;
-
-        if (chord.chordIndexInSection === 0 || currentIdx === startIdx) {
-          // Clear previous section track notes timeouts to prevent overlapping/leakage
-          trackTimeoutsRef.current.forEach(clearTimeout);
-          trackTimeoutsRef.current = [];
-        }
-
-        // 1. Play global song-level tracks
-        if (activeSongRef.current.tracks && activeSongRef.current.tracks.length > 0) {
-          activeSongRef.current.tracks.forEach((track) => {
-            const isMuted = track.muted === true;
-            const isSoloed = track.soloed === true;
-            const shouldPlay = !isMuted && (!anySoloed || isSoloed);
-
-            if (!shouldPlay) return;
-
-            const notesForSection = track.sectionNotes?.[chord.sectionId];
-            if (notesForSection && notesForSection.length > 0) {
-              const trackVolume = track.volume !== undefined ? track.volume : 0.7;
-
-              notesForSection.forEach((noteObj) => {
-                if (noteObj.startBeat >= currentChordStart && noteObj.startBeat < currentChordEnd) {
-                  const startDelayMs = (noteObj.startBeat - currentChordStart) * beatDurationSec * 1000;
-                  const noteDurationMs = noteObj.durationBeats * beatDurationSec * 1000;
-                  
-                  playTrackSingleNote(
-                    noteObj.note,
-                    noteDurationMs,
-                    noteObj.velocity * trackVolume,
-                    track.midiChannel,
-                    "grand-piano",
-                    startTimeMs + startDelayMs
-                  );
-                }
-              });
-            }
-          });
-        }
-
-        // 2. Fallback: Play legacy section-level tracks
-        const currentSection = activeSongRef.current.sections.find(s => s.id === chord.sectionId);
-        if (currentSection && currentSection.tracks && currentSection.tracks.length > 0) {
-          const anySectionSoloed = currentSection.tracks.some(t => t.soloed === true);
-          currentSection.tracks.forEach((track) => {
-            const isMuted = track.muted === true;
-            const isSoloed = track.soloed === true;
-            const shouldPlay = !isMuted && (!anySectionSoloed || isSoloed);
-
-            if (!shouldPlay) return;
-
-            if (track.notes && track.notes.length > 0) {
-              const trackVolume = track.volume !== undefined ? track.volume : 0.7;
-
-              track.notes.forEach((noteObj) => {
-                if (noteObj.startBeat >= currentChordStart && noteObj.startBeat < currentChordEnd) {
-                  const startDelayMs = (noteObj.startBeat - currentChordStart) * beatDurationSec * 1000;
-                  const noteDurationMs = noteObj.durationBeats * beatDurationSec * 1000;
-                  
-                  playTrackSingleNote(
-                    noteObj.note,
-                    noteDurationMs,
-                    noteObj.velocity * trackVolume,
-                    track.midiChannel,
-                    track.instrumentPreset || "grand-piano",
-                    startTimeMs + startDelayMs
-                  );
-                }
-              });
-            }
-          });
-        }
-      }
-
-      // Handling is fully automated within playChordNotes, which takes care of scheduling,
-      // AudioContext triggers, active visual piano keys, and external MIDI output!
-
-      // Schedule next step
-      const nextIdx = currentIdx + 1;
-      let targetNextIdx = nextIdx;
-
-      // Handle Section Looping
-      const currentLoop = loopModeRef.current;
-      if (currentLoop === "section") {
-        const sectionChords = playableChords.filter(c => c.sectionId === chord.sectionId);
-        const lastSectionChord = sectionChords[sectionChords.length - 1];
-        if (chord.globalIndex === lastSectionChord.globalIndex) {
-          const firstSectionChord = sectionChords[0];
-          targetNextIdx = firstSectionChord.globalIndex;
-        }
-      }
-
-      if (playbackWorkerRef.current) {
-        playbackWorkerRef.current.onmessage = () => {
-          runPlaybackStep(targetNextIdx);
-        };
-        playbackWorkerRef.current.postMessage({ action: "start", delay: chordDurationMs });
-      } else {
-        playbackTimerRef.current = setTimeout(() => {
-          runPlaybackStep(targetNextIdx);
-        }, chordDurationMs);
-      }
-    };
-
-    runPlaybackStep(startIdx);
-  }, [activeSong, activeSectionId, playbackChordIndex, getPlayableChords, stopPlayback]);
-
-  // Handle Play/Pause toggle
-  const togglePlayback = () => {
-    if (isPlaying) {
-      stopPlayback();
-    } else {
-      startPlayback();
-    }
-  };
-
-  // Ref to always read the latest activeSong (avoids stale closure in save handler)
-  const activeSongRef = useRef<SongStructure | null>(null);
-  
-  // Navigation State
-  const [activeTab, setActiveTab] = useState<string>("estudio");
-
-  // Database States
-  const [savedSongs, setSavedSongs] = useState<SongStructure[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingSongs, setIsLoadingSongs] = useState(false);
-
-  // Section Progress States
-  const [generatingSectionIds, setGeneratingSectionIds] = useState<Record<string, boolean>>({});
-
-  // Sinfonía AI Track Composer states
-  const [isTrackComposerOpen, setIsTrackComposerOpen] = useState(false);
-  const [composerSectionId, setComposerSectionId] = useState<string>("");
-  const [composerTrackName, setComposerTrackName] = useState<string>("Voz Principal");
-  const [composerMidiChannel, setComposerMidiChannel] = useState<number>(2);
-  const [composerInstrumentPreset, setComposerInstrumentPreset] = useState<string>("grand-piano");
-  const [composerUserPrompt, setComposerUserPrompt] = useState<string>("");
-
-  // Sinfonía AI Modular Section Regeneration states
-  const [isSectionRegenOpen, setIsSectionRegenOpen] = useState(false);
-  const [regenTrackId, setRegenTrackId] = useState<string>("");
-  const [regenSectionId, setRegenSectionId] = useState<string>("");
-  const [regenUserPrompt, setRegenUserPrompt] = useState<string>("");
-
-  // Helper to automatically background-save song changes to DB
-  const saveSongBackground = async (updatedSong: SongStructure) => {
-    if (!updatedSong.id) return;
-    try {
-      await saveSongAction(updatedSong);
-    } catch (e) {
-      console.warn("Background auto-save failed:", e);
-    }
-  };
-
   // Updaters for song-level tracks (with fallback support for legacy section-level tracks)
   const handleUpdateTrackVolume = (sectionId: string | null, trackId: string, vol: number) => {
     if (!activeSong) return;
@@ -2335,6 +427,11 @@ export function SongGenerator() {
     const isSongTrack = activeSong.tracks?.some(t => t.id === trackId);
     
     if (isSongTrack) {
+      const targetTrack = activeSong.tracks?.find(t => t.id === trackId);
+      if (targetTrack?.isProgressionRhythm) {
+        toast.error("La pista de Ritmo de Progresión no se puede eliminar porque reproduce la armonía de la canción.");
+        return;
+      }
       const updated = {
         ...activeSong,
         tracks: (activeSong.tracks || []).filter(t => t.id !== trackId)
@@ -2430,8 +527,15 @@ export function SongGenerator() {
     }
   };
 
-  const handleGenerateTrack = async () => {
+  const handleGenerateTrack = async (params: {
+    trackName: string;
+    midiChannel: number;
+    instrumentPreset: string;
+    prompt: string;
+  }) => {
     if (!activeSong) return;
+
+    const { trackName, midiChannel, instrumentPreset, prompt } = params;
     
     // Check if the song has at least one section with chords
     const sectionsWithChords = activeSong.sections.filter(s => s.chords && s.chords.chords && s.chords.chords.length > 0);
@@ -2446,9 +550,9 @@ export function SongGenerator() {
     const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const pendingTrack: SongTrack = {
       id: trackId,
-      name: composerTrackName,
-      midiChannel: composerMidiChannel,
-      instrumentPreset: composerInstrumentPreset,
+      name: trackName,
+      midiChannel: midiChannel,
+      instrumentPreset: instrumentPreset,
       volume: 0.7,
       prompts: {},
       sectionNotes: {},
@@ -2456,15 +560,15 @@ export function SongGenerator() {
       progress: 0
     };
 
-    const occupiedTrack = activeSong.tracks?.find(t => t.midiChannel === composerMidiChannel);
+    const occupiedTrack = activeSong.tracks?.find(t => t.midiChannel === midiChannel);
     if (occupiedTrack) {
-      toast.info(`El Canal ${composerMidiChannel} ya estaba ocupado por la pista "${occupiedTrack.name}". Ha sido sobrescrita.`);
+      toast.info(`El Canal ${midiChannel} ya estaba ocupado por la pista "${occupiedTrack.name}". Ha sido sobrescrita.`);
     }
 
     // Immediately insert the pending track into activeSong state to trigger visual placeholder cards, overwriting any track occupying this channel
     setActiveSong(prev => {
       if (!prev) return prev;
-      const cleanTracks = (prev.tracks || []).filter(t => t.midiChannel !== composerMidiChannel);
+      const cleanTracks = (prev.tracks || []).filter(t => t.midiChannel !== midiChannel);
       return {
         ...prev,
         tracks: [...cleanTracks, pendingTrack]
@@ -2472,7 +576,7 @@ export function SongGenerator() {
     });
 
     const toastId = `track-gen-${trackId}`;
-    toast.loading(`Sinfonía AI componiendo pista "${composerTrackName}"...`, { id: toastId });
+    toast.loading(`Sinfonía AI componiendo pista "${trackName}"...`, { id: toastId });
 
     try {
       let completedCount = 0;
@@ -2507,9 +611,9 @@ export function SongGenerator() {
             sectionKey: sect.key,
             sectionScale: sect.scale,
             chordsList,
-            trackName: composerTrackName,
-            midiChannel: composerMidiChannel,
-            userPrompt: composerUserPrompt || `Arreglo instrumental para ${composerTrackName}`,
+            trackName: trackName,
+            midiChannel: midiChannel,
+            userPrompt: prompt || `Arreglo instrumental para ${trackName}`,
             previousSectionType: prevSect?.type,
             previousChordsList,
             nextSectionType: nextSect?.type,
@@ -2554,41 +658,43 @@ export function SongGenerator() {
 
       const newSectionNotes: Record<string, any> = {};
       const newPrompts: Record<string, string> = {};
+      let generatedSectionsCount = 0;
 
-      results.forEach(r => {
-        if (r.success && r.notes) {
-          newSectionNotes[r.sectionId] = r.notes;
-          newPrompts[r.sectionId] = composerUserPrompt;
+      results.forEach(res => {
+        if (res.success && res.notes) {
+          newSectionNotes[res.sectionId] = res.notes;
+          newPrompts[res.sectionId] = prompt;
+          generatedSectionsCount++;
         }
       });
 
       toast.dismiss(toastId);
 
-      const generatedSectionsCount = Object.keys(newSectionNotes).length;
-
       if (generatedSectionsCount > 0) {
-        // Complete the track: remove isGenerating flag and save final section notes
-        const currentSong = activeSongRef.current ?? activeSong;
-        if (currentSong) {
+        let finalTrack: SongTrack | null = null;
+        setActiveSong(prev => {
+          if (!prev) return prev;
+          const updatedTracks = (prev.tracks || []).map(t => {
+            if (t.id === trackId) {
+              finalTrack = {
+                ...t,
+                prompts: newPrompts,
+                sectionNotes: newSectionNotes,
+                isGenerating: false,
+                progress: 100
+              };
+              return finalTrack;
+            }
+            return t;
+          });
           const updated = {
-            ...currentSong,
-            tracks: (currentSong.tracks || []).map(t => 
-              t.id === trackId 
-                ? { 
-                    ...t, 
-                    isGenerating: false, 
-                    progress: 100, 
-                    sectionNotes: newSectionNotes, 
-                    prompts: newPrompts 
-                  } 
-                : t
-            )
+            ...prev,
+            tracks: updatedTracks
           };
-          setActiveSong(updated);
-          activeSongRef.current = updated;
-          saveSongBackground(updated);
-        }
-        toast.success(`¡Pista global "${composerTrackName}" generada exitosamente (${generatedSectionsCount} secciones compuestas)!`);
+          setTimeout(() => saveSongBackground(updated), 0);
+          return updated;
+        });
+        toast.success(`¡Pista global "${trackName}" generada exitosamente (${generatedSectionsCount} secciones compuestas)!`);
       } else {
         // No notes generated at all: remove the pending track card
         setActiveSong(prev => {
@@ -2612,8 +718,6 @@ export function SongGenerator() {
         };
       });
       toast.error("Fallo inesperado al generar el arreglo melódico.");
-    } finally {
-      setComposerUserPrompt("");
     }
   };
 
@@ -2797,66 +901,6 @@ export function SongGenerator() {
     }
   };
 
-  // Helper to load song settings and sync React states/refs
-  const applyLoadedSong = (song: SongStructure) => {
-    const songWithTracks = {
-      ...song,
-      tracks: song.tracks || []
-    };
-
-    // 1. Sync states first to avoid automatic overwrite by useEffect
-    if (song.tempo) {
-      setPlaybackBpm(song.tempo);
-      playbackBpmRef.current = song.tempo;
-    }
-    if (song.playbackMode) {
-      setPlaybackMode(song.playbackMode as any);
-      playbackModeRef.current = song.playbackMode as any;
-    } else {
-      setPlaybackMode("basic");
-      playbackModeRef.current = "basic";
-    }
-    if (song.selectedRhythmPattern) {
-      setSelectedRhythmPattern(song.selectedRhythmPattern);
-      selectedRhythmPatternRef.current = song.selectedRhythmPattern;
-    } else {
-      setSelectedRhythmPattern("pop-ballad");
-      selectedRhythmPatternRef.current = "pop-ballad";
-    }
-    if (song.selectedArpeggioPattern) {
-      setSelectedArpeggioPattern(song.selectedArpeggioPattern);
-      selectedArpeggioPatternRef.current = song.selectedArpeggioPattern;
-    } else {
-      setSelectedArpeggioPattern("up-down");
-      selectedArpeggioPatternRef.current = "up-down";
-    }
-    if (song.playbackVolume !== undefined) {
-      setPlaybackVolume(song.playbackVolume);
-      playbackVolumeRef.current = song.playbackVolume;
-    } else {
-      setPlaybackVolume(0.7);
-      playbackVolumeRef.current = 0.7;
-    }
-    if (song.customRhythmSteps) {
-      setCustomRhythmSteps(song.customRhythmSteps);
-      customRhythmStepsRef.current = song.customRhythmSteps;
-    } else {
-      const defaultSteps = Array(5).fill(null).map(() => Array(16).fill(false));
-      setCustomRhythmSteps(defaultSteps);
-      customRhythmStepsRef.current = defaultSteps;
-    }
-    if (song.loopMode) {
-      setLoopMode(song.loopMode as any);
-      loopModeRef.current = song.loopMode as any;
-    } else {
-      setLoopMode("off");
-      loopModeRef.current = "off";
-    }
-
-    // 2. Set activeSong state and ref
-    setActiveSong(songWithTracks);
-    activeSongRef.current = songWithTracks;
-  };
 
   // Submit form: Generate Song Blueprint and compile sections
   const onSubmit = async (data: SongInput) => {
@@ -3070,222 +1114,872 @@ export function SongGenerator() {
     reader.readAsText(file);
   };
 
-  // Export JSON File Project
-  const handleExportJson = () => {
-    if (!activeSong) return;
-    const blob = new Blob([JSON.stringify(activeSong, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `musiclab_song_${activeSong.title.toLowerCase().replace(/\s+/g, "_")}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("¡Proyecto de canción exportado en JSON!");
-  };
 
-  // Trigger individual section regeneration
+
+  // Trigger individual section regeneration along with all synchronized melody tracks (except percussion)
   const handleRegenerateSection = async (section: SongSection) => {
     if (!activeSong) return;
-    toast.loading(`Regenerando sección ${section.type}...`, { id: "regen-toast" });
-    await generateSectionChords(section, activeSong.tempo, activeSong.title);
-    toast.dismiss("regen-toast");
+    const toastId = `section-regen-${section.id}`;
+    toast.loading(`Regenerando sección ${section.type} y sincronizando melodías...`, { id: toastId });
+
+    try {
+      // 1. Regenerate chords for this section
+      const newChords = await generateSectionChords(section, activeSong.tempo, activeSong.title);
+      if (!newChords || !newChords.chords || newChords.chords.length === 0) {
+        toast.dismiss(toastId);
+        return;
+      }
+
+      // 2. Filter out percussion tracks and progression rhythm track
+      const tracksToRegenerate = (activeSong.tracks || []).filter(t => {
+        if (t.isProgressionRhythm) return false;
+        const isPerc = 
+          t.midiChannel === 10 ||
+          t.instrumentPreset === "drum-kit" ||
+          t.name.toLowerCase().includes("drum") ||
+          t.name.toLowerCase().includes("percusion") ||
+          t.name.toLowerCase().includes("percusión") ||
+          t.name.toLowerCase().includes("bateria") ||
+          t.name.toLowerCase().includes("batería");
+        return !isPerc;
+      });
+
+      if (tracksToRegenerate.length === 0) {
+        // No melody tracks: just save the new chords to the database
+        const updated = {
+          ...activeSong,
+          sections: activeSong.sections.map(s => 
+            s.id === section.id ? { ...s, chords: newChords } : s
+          )
+        };
+        setActiveSong(updated);
+        saveSongBackground(updated);
+        toast.dismiss(toastId);
+        toast.success(`¡Sección ${section.type} y progresiones regeneradas con éxito!`);
+        return;
+      }
+
+      // 3. Set generating status to true for all melody tracks
+      setActiveSong(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          sections: prev.sections.map(s => 
+            s.id === section.id ? { ...s, chords: newChords } : s
+          ),
+          tracks: prev.tracks?.map(t => {
+            const shouldRegen = tracksToRegenerate.some(rt => rt.id === t.id);
+            if (shouldRegen) {
+              return { ...t, isGenerating: true, progress: 0 };
+            }
+            return t;
+          })
+        };
+      });
+
+      // 4. Prepare section indexing and chords mapping for generating tracks
+      const sectionIndex = activeSong.sections.findIndex(s => s.id === section.id);
+      const prevSect = sectionIndex > 0 ? activeSong.sections[sectionIndex - 1] : null;
+      const nextSect = sectionIndex < activeSong.sections.length - 1 ? activeSong.sections[sectionIndex + 1] : null;
+
+      const previousChordsList = prevSect?.chords?.chords.map(c => ({
+        chord: c.chord,
+        pianoNotes: c.pianoNotes || [],
+        role: c.role
+      })) || undefined;
+
+      const nextChordsList = nextSect?.chords?.chords.map(c => ({
+        chord: c.chord,
+        pianoNotes: c.pianoNotes || [],
+        role: c.role
+      })) || undefined;
+
+      const chordsList = newChords.chords.map((c: any) => ({
+        chord: c.chord,
+        pianoNotes: c.pianoNotes || [],
+        role: c.role
+      }));
+
+      // 5. Generate all track melodies in parallel
+      const results = await Promise.all(
+        tracksToRegenerate.map(async (track) => {
+          const previousSectionNotes = prevSect ? track.sectionNotes?.[prevSect.id] : undefined;
+          const customPrompt = track.prompts?.[section.id] || `Arreglo instrumental para ${track.name}`;
+
+          try {
+            const res = await generateSectionTrackAction({
+              songTitle: activeSong.title,
+              sectionType: section.type,
+              sectionKey: section.key,
+              sectionScale: section.scale,
+              chordsList,
+              trackName: track.name,
+              midiChannel: track.midiChannel,
+              userPrompt: customPrompt,
+              previousSectionType: prevSect?.type,
+              previousChordsList,
+              previousSectionNotes,
+              nextSectionType: nextSect?.type,
+              nextChordsList
+            });
+
+            if (res.success && res.data?.notes) {
+              return { trackId: track.id, success: true, notes: res.data.notes };
+            }
+            return { trackId: track.id, success: false };
+          } catch (err) {
+            console.error(`Error regenerating track section for ${track.name}:`, err);
+            return { trackId: track.id, success: false };
+          }
+        })
+      );
+
+      // 6. Consolidate results and save everything to DB
+      setActiveSong(prev => {
+        if (!prev) return null;
+        const updatedTracks = (prev.tracks || []).map(t => {
+          const res = results.find(r => r.trackId === t.id);
+          if (res) {
+            if (res.success && res.notes) {
+              return {
+                ...t,
+                isGenerating: false,
+                progress: 100,
+                sectionNotes: {
+                  ...t.sectionNotes,
+                  [section.id]: res.notes
+                }
+              };
+            } else {
+              return {
+                ...t,
+                isGenerating: false,
+                progress: 100
+              };
+            }
+          }
+          return t;
+        });
+
+        const updated = {
+          ...prev,
+          tracks: updatedTracks
+        };
+
+        setTimeout(() => saveSongBackground(updated), 0);
+        return updated;
+      });
+
+      toast.dismiss(toastId);
+      toast.success(`¡Sección ${section.type} y todas las melodías sincronizadas (excepto percusión) regeneradas con éxito!`);
+    } catch (err) {
+      console.error("Error regenerating section chords and track melodies:", err);
+      toast.dismiss(toastId);
+      toast.error("Error al regenerar progresiones y melodías.");
+      
+      // Reset generating flag on error
+      setActiveSong(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          tracks: prev.tracks?.map(t => ({ ...t, isGenerating: false }))
+        };
+      });
+    }
   };
 
   const selectedSection = activeSong?.sections.find(s => s.id === activeSectionId);
 
-  return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      {/* DAW Root Tabs Navigation Wrapper */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        {/* Top Title & DAW Header Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-5">
-          <div>
-            <h2 className="text-3xl font-black tracking-tight text-foreground flex items-center gap-2">
-              <ListMusic className="w-8 h-8 text-primary" />
-              Organizador de Canciones Inteligente
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              Estructura canciones completas con generación de progresiones aisladas por secciones y guardado en base de datos.
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-shrink-0">
-            {/* Unified DAW Control Toolbar */}
-            <div className="flex items-center gap-3 bg-muted/20 p-1.5 rounded-2xl border border-border/30 backdrop-blur-sm shadow-sm">
-              {/* Mode Selector Stepper Tabs */}
-              <TabsList className="bg-transparent p-0 border-0 h-auto space-x-1 flex items-center">
-                <TabsTrigger 
-                  value="estudio" 
-                  className="rounded-xl text-xs font-black px-3.5 py-1.5 h-8 flex items-center gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
-                >
-                  <Music className="w-3.5 h-3.5 text-primary" />
-                  Mesa de Composición
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="biblioteca" 
-                  className="rounded-xl text-xs font-black px-3.5 py-1.5 h-8 flex items-center gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
-                >
-                  <FolderOpen className="w-3.5 h-3.5 text-primary" />
-                  Biblioteca ({savedSongs.length})
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Vertical DAW Separator */}
-              <div className="h-5 w-[1px] bg-border/60 mx-1 flex-shrink-0" />
-
-              {/* Action Buttons Group */}
-              <div className="flex items-center gap-1.5">
-                {/* Primary IA Composer Button */}
-                <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="rounded-xl h-8 px-3.5 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm flex items-center gap-1.5 transition-all hover:scale-[1.01]">
-                      <Sparkles className="w-3.5 h-3.5 text-primary-foreground animate-pulse" />
-                      Componer con IA
+  const portalTarget = typeof window !== "undefined" ? document.getElementById("header-portal") : null;
+  const headerPortalElement = mounted && portalTarget
+    ? createPortal(
+        <TooltipProvider>
+          <div className="flex items-center gap-2.5 bg-muted/20 p-1 rounded-2xl border border-border/30 backdrop-blur-sm shadow-sm flex-shrink-0 select-none">
+            {/* Transporte Global Master */}
+            {activeSong && (
+              <div className="flex items-center gap-2 px-1">
+                {/* Play/Pause Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => togglePlayback()}
+                      className={`w-8 h-8 rounded-xl transition-all duration-200 active:scale-95 ${
+                        isPlaying 
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" 
+                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                      }`}
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-3.5 h-3.5 fill-current" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                      )}
                     </Button>
-                  </DialogTrigger>
-                  
-                  {/* The wide modal content with vertical scroll */}
-                  <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto rounded-3xl border-border bg-card/95 backdrop-blur-md shadow-2xl p-0 overflow-x-hidden flex flex-col">
-                    <DialogHeader className="p-6 pb-2 border-b border-border/30">
-                      <DialogTitle className="text-lg font-black flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-primary animate-pulse" />
-                        Compositor de Canciones Inteligente
-                      </DialogTitle>
-                      <DialogDescription className="text-xs text-muted-foreground">
-                        Define el concepto de tu canción y configura los parámetros a tu gusto. La IA se encargará de realizar el arreglo armónico por ti.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="p-6 pt-4">
-                      {loading ? (
-                        <div className="flex flex-col items-center justify-center py-12 px-4 space-y-6 animate-in fade-in zoom-in-95 duration-300">
-                          <div className="relative">
-                            {/* Inner spin ring */}
-                            <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-                            {/* Outer glowing glow */}
-                            <div className="absolute inset-0 w-16 h-16 bg-primary/10 rounded-full blur-xl animate-pulse" />
-                          </div>
-                          
-                          <div className="text-center space-y-2 max-w-md">
-                            <h3 className="text-lg font-black text-foreground">Componiendo tu Canción con IA</h3>
-                            <p className="text-xs text-muted-foreground font-medium italic min-h-[1.5rem]">
-                              "{songGenStatus || "Analizando estilo y estructurando plano musical..."}"
-                            </p>
-                          </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{isPlaying ? "Pausar" : "Reproducir"}</TooltipContent>
+                </Tooltip>
 
-                          <div className="w-full max-w-md space-y-2">
-                            <div className="flex justify-between items-center text-[10px] font-black text-primary uppercase tracking-wider">
-                              <span>Progreso de Composición AI</span>
-                              <span className="font-mono">{songGenProgress}%</span>
-                            </div>
-                            <div className="w-full bg-muted/60 rounded-full h-3 overflow-hidden border border-border/30 shadow-inner">
-                              <div 
-                                className="bg-gradient-to-r from-primary via-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full shadow-lg"
-                                style={{ width: `${songGenProgress}%` }}
-                              />
-                            </div>
-                            <div className="text-[9px] text-muted-foreground/80 text-center font-medium">
-                              Por favor no cierres este diálogo. La orquestación IA tarda entre 15 y 30 segundos.
-                            </div>
+                {/* Stop Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={stopPlayback}
+                      disabled={!isPlaying && playbackChordIndex === -1}
+                      className="w-8 h-8 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Detener</TooltipContent>
+                </Tooltip>
+
+                {/* Loop Mode Cycling Selector Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (loopMode === "off") setLoopMode("song");
+                        else if (loopMode === "song") setLoopMode("section");
+                        else setLoopMode("off");
+                      }}
+                      className={`w-8 h-8 rounded-xl transition-colors duration-150 ${
+                        loopMode !== "off"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Repeat className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {loopMode === "off"
+                      ? "Bucle Desactivado (Click para Canción)"
+                      : loopMode === "song"
+                      ? "Bucle: Toda la Canción (Click para Sección)"
+                      : "Bucle: Sección Activa (Click para Desactivar)"}
+                  </TooltipContent>
+                </Tooltip>
+
+                {/* Vertical Separator */}
+                <div className="h-4 w-[1px] bg-border/40 mx-0.5" />
+
+                {/* BPM Input / Control */}
+                <div className="flex items-center gap-1.5 bg-muted/40 border border-border/50 rounded-xl px-2.5 h-8 select-none">
+                  <Activity className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  <input
+                    type="number"
+                    min={40}
+                    max={220}
+                    value={playbackBpm}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) setPlaybackBpm(Math.max(40, Math.min(220, val)));
+                    }}
+                    className="w-10 bg-transparent text-xs font-bold text-foreground focus:outline-none text-center font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    title="Ajustar tempo manual"
+                  />
+                  <span className="text-[9px] font-black text-muted-foreground tracking-wider uppercase font-sans">BPM</span>
+                </div>
+
+                {/* Volume Control Icon Button with Hover Popover/Slider */}
+                <div className="flex items-center gap-1.5 bg-muted/40 border border-border/50 rounded-xl px-2.5 h-8">
+                  {playbackVolume === 0 ? (
+                    <VolumeX className="w-3 h-3 text-muted-foreground" />
+                  ) : (
+                    <Volume2 className="w-3 h-3 text-emerald-600 dark:text-emerald-450" />
+                  )}
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={playbackVolume}
+                    onChange={(e) => setPlaybackVolume(parseFloat(e.target.value))}
+                    className="w-12 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg cursor-pointer accent-emerald-500 focus:outline-none"
+                    title={`Volumen Maestro: ${Math.round(playbackVolume * 100)}%`}
+                  />
+                </div>
+
+                {/* Playback Mode select dropdown inside top bar */}
+                <select
+                  value={playbackMode}
+                  onChange={(e) => setPlaybackMode(e.target.value as any)}
+                  className="rounded-xl border border-border bg-background text-foreground h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none"
+                >
+                  <option value="basic">🎵 Básico</option>
+                  <option value="rhythm">🥁 Ritmos</option>
+                  <option value="arpeggio">✨ Arpegios</option>
+                  <option value="custom-rhythm">🛠️ Personalizado</option>
+                </select>
+
+                {/* Conditionally show rhythm or arpeggio preset selection inside top bar */}
+                {playbackMode === "rhythm" && (
+                  <select
+                    value={selectedRhythmPattern}
+                    onChange={(e) => setSelectedRhythmPattern(e.target.value)}
+                    className="rounded-xl border border-emerald-500/20 bg-background text-emerald-650 dark:text-emerald-400 h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none max-w-[120px]"
+                  >
+                    <option value="pop-ballad">Balada Pop</option>
+                    <option value="classical-alberti">Alberti Clás.</option>
+                    <option value="neo-soul-arpeggio">Neo-Soul</option>
+                    <option value="bossa-nova">Bossa Nova</option>
+                    <option value="lofi-chill">Lo-Fi Chill</option>
+                    <option value="salsa-tumbao">Salsa</option>
+                    <option value="bachata-bolero">Bachata</option>
+                    <option value="reggaeton-dembow">Reggaeton</option>
+                    <option value="bolero-romantico">Bolero</option>
+                    <option value="jazz-swing">Jazz Swing</option>
+                    <option value="boogie-woogie">Boogie</option>
+                    <option value="funk-clav">Funk Clav</option>
+                    <option value="ambient-drone">Ambient</option>
+                    <option value="cumbia-colombiana">Cumbia</option>
+                    <option value="edm-house">House/EDM</option>
+                    <option value="rb-trap-soul">Trap Soul</option>
+                    <option value="flamenco-rumba">Rumba Flam.</option>
+                  </select>
+                )}
+
+                {playbackMode === "arpeggio" && (
+                  <select
+                    value={selectedArpeggioPattern}
+                    onChange={(e) => setSelectedArpeggioPattern(e.target.value)}
+                    className="rounded-xl border border-emerald-500/20 bg-background text-emerald-655 dark:text-emerald-400 h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none max-w-[120px]"
+                  >
+                    <option value="up-down">Triángulo</option>
+                    <option value="up">Ascendente</option>
+                    <option value="down">Descendente</option>
+                    <option value="down-up">Valle</option>
+                    <option value="cross">Espiral</option>
+                    <option value="double-strike">Doble Nota</option>
+                    <option value="random">Aleatorio</option>
+                    <option value="cascade">Cascada</option>
+                  </select>
+                )}
+              </div>
+            )}
+
+            {activeSong && (
+              <div className="h-5 w-[1px] bg-border/60 mx-0.5 flex-shrink-0" />
+            )}
+
+            {/* Mode Selector Stepper Tabs */}
+            <TabsList className="bg-transparent p-0 border-0 h-auto space-x-1 flex items-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger 
+                    value="estudio" 
+                    className="rounded-xl w-8 h-8 p-0 flex items-center justify-center data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
+                  >
+                    <Music className="w-3.5 h-3.5 text-primary" />
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Mesa de Composición</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger 
+                    value="pianoroll" 
+                    disabled={!activeSong}
+                    className="rounded-xl w-8 h-8 p-0 flex items-center justify-center data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200 disabled:opacity-50"
+                  >
+                    <Keyboard className="w-3.5 h-3.5 text-primary" />
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Piano Roll</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger 
+                    value="biblioteca" 
+                    className="rounded-xl w-8 h-8 p-0 flex items-center justify-center data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-primary" />
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Biblioteca ({savedSongs.length})</TooltipContent>
+              </Tooltip>
+            </TabsList>
+
+            {/* Vertical DAW Separator */}
+            <div className="h-5 w-[1px] bg-border/60 mx-1 flex-shrink-0" />
+
+            {/* GROUP 1: IA Composition */}
+            <div className="flex items-center gap-1 px-1">
+              <span className="text-[8px] font-black text-muted-foreground/50 uppercase tracking-widest mr-0.5 hidden sm:block">IA</span>
+              {/* Primary IA Composer Button */}
+              <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button className="rounded-xl w-8 h-8 p-0 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm flex items-center justify-center transition-all hover:scale-[1.01]">
+                        <Sparkles className="w-3.5 h-3.5 text-primary-foreground animate-pulse" />
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Componer con IA</TooltipContent>
+                </Tooltip>
+                
+                {/* The wide modal content with vertical scroll */}
+                <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto rounded-3xl border-border bg-card/95 backdrop-blur-md shadow-2xl p-0 overflow-x-hidden flex flex-col">
+                  <DialogHeader className="p-6 pb-2 border-b border-border/30">
+                    <DialogTitle className="text-lg font-black flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+                      Compositor de Canciones Inteligente
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-muted-foreground">
+                      Define el concepto de tu canción y configura los parámetros a tu gusto. La IA se encargará de realizar el arreglo armónico por ti.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="p-6 pt-4">
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center py-12 px-4 space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                        <div className="relative">
+                          {/* Inner spin ring */}
+                          <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                          {/* Outer glowing glow */}
+                          <div className="absolute inset-0 w-16 h-16 bg-primary/10 rounded-full blur-xl animate-pulse" />
+                        </div>
+                        
+                        <div className="text-center space-y-2 max-w-md">
+                          <h3 className="text-lg font-black text-foreground">Componiendo tu Canción con IA</h3>
+                          <p className="text-xs text-muted-foreground font-medium italic min-h-[1.5rem]">
+                            "{songGenStatus || "Analizando estilo y estructurando plano musical..."}"
+                          </p>
+                        </div>
+
+                        <div className="w-full max-w-md space-y-2">
+                          <div className="flex justify-between items-center text-[10px] font-black text-primary uppercase tracking-wider">
+                            <span>Progreso de Composición AI</span>
+                            <span className="font-mono">{songGenProgress}%</span>
+                          </div>
+                          <div className="w-full bg-muted/60 rounded-full h-3 overflow-hidden border border-border/30 shadow-inner">
+                            <div 
+                              className="bg-gradient-to-r from-primary via-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full shadow-lg"
+                              style={{ width: `${songGenProgress}%` }}
+                            />
+                          </div>
+                          <div className="text-[9px] text-muted-foreground/80 text-center font-medium">
+                            Por favor no cierres este diálogo. La orquestación IA tarda entre 15 y 30 segundos.
                           </div>
                         </div>
-                      ) : (
-                        <SongComposerForm
-                          loading={loading}
-                          onGenerateSong={onSubmit}
-                          onImportSong={(song) => {
-                            applyLoadedSong(song);
-                            setActiveSectionId(song.sections[0]?.id || null);
-                            setActiveTab("estudio");
-                            setIsComposerOpen(false);
-                          }}
-                        />
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-
-                {/* Operations Dropdown Menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="rounded-xl h-8 px-2.5 text-xs font-bold border-border bg-background hover:bg-muted/50 flex items-center gap-1">
-                      <Sliders className="w-3.5 h-3.5 text-primary" />
-                      Proyecto
-                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="rounded-xl border-border bg-card/95 backdrop-blur-md shadow-lg w-52 p-1.5 space-y-0.5">
-                    <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2.5 py-1.5">
-                      Operaciones
-                    </DropdownMenuLabel>
-                    
-                    <DropdownMenuItem 
-                      disabled={!activeSong || isSaving}
-                      onClick={handleSaveSong}
-                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
-                    >
-                      <Save className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>{isSaving ? "Guardando..." : "Guardar en DB"}</span>
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem 
-                      disabled={!activeSong}
-                      onClick={handleExportJson}
-                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
-                    >
-                      <Download className="w-3.5 h-3.5 text-blue-500" />
-                      <span>Exportar como JSON</span>
-                    </DropdownMenuItem>
-
-                    <DropdownMenuSeparator className="bg-border/40" />
-
-                    <DropdownMenuItem 
-                      onClick={() => {
-                        document.getElementById("dropdown-import-song-file")?.click();
-                      }}
-                      className="rounded-lg text-xs font-medium px-2.5 py-2 flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors duration-150"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-purple-500" />
-                      <span>Importar Proyecto JSON</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                      </div>
+                    ) : (
+                      <SongComposerForm
+                        loading={loading}
+                        onGenerateSong={onSubmit}
+                        onImportSong={(song) => {
+                          applyLoadedSong(song);
+                          setActiveSectionId(song.sections[0]?.id || null);
+                          setActiveTab("estudio");
+                          setIsComposerOpen(false);
+                        }}
+                      />
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
 
-            {/* Hidden file input for dropdown import */}
-            <input 
-              type="file" 
-              id="dropdown-import-song-file" 
-              accept=".json" 
-              className="hidden" 
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
+            {/* Vertical Separator */}
+            <div className="h-5 w-[1px] bg-border/60 mx-1 flex-shrink-0" />
 
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                  try {
-                    const parsed = JSON.parse(event.target?.result as string);
-                    if (parsed.title && parsed.sections) {
-                      applyLoadedSong(parsed);
-                      setActiveSectionId(parsed.sections[0]?.id || null);
-                      setActiveTab("estudio");
-                      toast.success("¡Proyecto JSON de canción importado con éxito!");
-                    } else {
-                      toast.error("El formato del JSON no es válido.");
-                    }
-                  } catch (err) {
-                    toast.error("Error al parsear el JSON.");
-                  }
-                };
-                reader.readAsText(file);
-              }} 
-            />
-          </div>
-        </div>
+            {/* GROUP 2: Project Actions (Save + Settings) */}
+            <div className="flex items-center gap-1 px-1">
+              <span className="text-[8px] font-black text-muted-foreground/50 uppercase tracking-widest mr-0.5 hidden sm:block">Proyecto</span>
 
-        {/* Tab 1: Studio Composer Workbench */}
-        <TabsContent value="estudio" className="mt-6 focus-visible:outline-none focus-visible:ring-0">
+              {/* Standalone Save Button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={!activeSong || isSaving}
+                    onClick={handleSaveSong}
+                    className={`rounded-xl w-8 h-8 p-0 border-border flex items-center justify-center transition-all ${
+                      isSaving
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 animate-pulse"
+                        : "bg-background hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-600"
+                    }`}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{isSaving ? "Guardando..." : "Guardar proyecto"}</TooltipContent>
+              </Tooltip>
+
+              {/* Studio Settings Modal (AI Config + MIDI Routing) */}
+              <Dialog open={isAiSettingsOpen} onOpenChange={setIsAiSettingsOpen}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="rounded-xl w-8 h-8 p-0 border-border bg-background hover:bg-muted/50 flex items-center justify-center">
+                        <Settings className="w-3.5 h-3.5 text-primary" />
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Configuración del Estudio</TooltipContent>
+                </Tooltip>
+                <DialogContent className="sm:max-w-[620px] max-h-[90vh] overflow-y-auto rounded-3xl border-border bg-card/95 backdrop-blur-md shadow-2xl p-6">
+                  <DialogHeader className="pb-4 border-b border-border/30">
+                    <DialogTitle className="text-lg font-black flex items-center gap-2">
+                      <Settings className="w-5 h-5 text-primary" />
+                      Configuración del Estudio
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-muted-foreground">
+                      Ajusta los dispositivos MIDI de salida y los proveedores de IA para la composición.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="pt-4 space-y-6 overflow-x-hidden">
+                    {/* MIDI Output Routing Section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 pb-2 border-b border-border/30">
+                        <Keyboard className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-black">Dispositivo de Salida MIDI</span>
+                      </div>
+                      {isMidiSupported ? (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest block">Dispositivo</label>
+                          <select
+                            value={selectedOutputId}
+                            onChange={(e) => setSelectedOutputId(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-background text-foreground h-9 px-3 text-[11px] font-semibold focus:outline-none hover:bg-muted transition-colors cursor-pointer"
+                          >
+                            <option value="">🚫 Ninguno (Instrumento Web)</option>
+                            {midiOutputs.map((output) => (
+                              <option key={output.id} value={output.id}>
+                                🎛️ {output.name}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedOutputId && (
+                            <>
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest block mt-2">Canal Global</label>
+                              <select
+                                value={midiChannel}
+                                onChange={(e) => setMidiChannel(parseInt(e.target.value, 10))}
+                                className="w-full rounded-xl border border-border bg-background text-foreground h-9 px-3 text-[11px] font-semibold focus:outline-none hover:bg-muted transition-colors cursor-pointer"
+                              >
+                                {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                                  <option key={ch} value={ch}>Canal {ch}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-amber-500 bg-amber-500/5 p-3 rounded-xl border border-amber-500/10">
+                          ⚠️ Web MIDI API no soportada en este navegador.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* AI Providers Section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 pb-2 border-b border-border/30">
+                        <Cpu className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-black">Proveedores de IA</span>
+                      </div>
+                      <AiConfigForm initialConfigs={initialConfigs} />
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>{/* end GROUP 2: Proyecto */}
+          </div>{/* end outer portal div */}
+        </TooltipProvider>,
+
+
+        portalTarget
+      )
+    : null;
+
+  return (
+    <div className="w-full h-full flex flex-col overflow-hidden relative">
+      {/* DAW Root Tabs Navigation Wrapper */}
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as any)} className="w-full h-full flex flex-col overflow-hidden">
+        {headerPortalElement}
+
+
+
+        <div className="flex flex-1 overflow-hidden w-full h-full relative">
+          {/* LEFT SIDEBAR PANEL: Transport & Mixer */}
+          {activeSong && (
+            <div className="w-[360px] border-r border-border/40 bg-zinc-50/50 dark:bg-zinc-950/25 flex flex-col shrink-0 p-5 space-y-4 h-full select-none min-h-0">
+              
+              {/* Consola de Mezcla Multicanal */}
+              <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                <div className="flex items-center justify-between flex-shrink-0 pb-1.5 border-b border-border/30">
+                  <div className="flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Consola de Mezcla</span>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="w-7 h-7 rounded-lg border-border"
+                    onClick={() => setIsTrackComposerOpen(true)}
+                    title="Agregar nueva pista con IA"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-primary" />
+                  </Button>
+                </div>
+
+                <div className="space-y-3 overflow-y-auto no-scrollbar flex-1 pr-1">
+                  {(() => {
+                    const getTrackColorClasses = (trackName: string, channel: number) => {
+                      const midiColors = [
+                        "from-indigo-500 to-blue-600 dark:from-indigo-600/95 dark:to-blue-700/95 border-indigo-400 dark:border-indigo-500/60 text-white dark:text-indigo-100 shadow-[0_0_8px_rgba(99,102,241,0.3)]",
+                        "from-amber-500 to-orange-600 dark:from-amber-600/95 dark:to-orange-700/95 border-amber-400 dark:border-amber-500/60 text-white dark:text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.3)]",
+                        "from-emerald-500 to-teal-600 dark:from-emerald-600/95 dark:to-teal-700/95 border-emerald-400 dark:border-emerald-500/60 text-white dark:text-emerald-100 shadow-[0_0_8px_rgba(16,185,129,0.3)]",
+                        "from-violet-500 to-purple-600 dark:from-violet-600/95 dark:to-purple-700/95 border-violet-400 dark:border-violet-500/60 text-white dark:text-violet-100 shadow-[0_0_8px_rgba(139,92,246,0.3)]",
+                        "from-cyan-500 to-blue-600 dark:from-cyan-600/95 dark:to-blue-700/95 border-cyan-400 dark:border-cyan-500/60 text-white dark:text-cyan-100 shadow-[0_0_8px_rgba(6,182,212,0.3)]",
+                        "from-pink-500 to-rose-600 dark:from-pink-600/95 dark:to-rose-700/95 border-pink-400 dark:border-pink-500/60 text-white dark:text-pink-100 shadow-[0_0_8px_rgba(236,72,153,0.3)]",
+                        "from-lime-500 to-green-600 dark:from-lime-600/95 dark:to-green-700/95 border-lime-400 dark:border-lime-500/60 text-white dark:text-lime-100 shadow-[0_0_8px_rgba(132,204,22,0.3)]",
+                        "from-sky-500 to-blue-600 dark:from-sky-600/95 dark:to-blue-700/95 border-sky-400 dark:border-sky-500/60 text-white dark:text-sky-100 shadow-[0_0_8px_rgba(14,165,233,0.3)]",
+                        "from-yellow-400 to-amber-500 dark:from-yellow-500/95 dark:to-amber-600/95 border-yellow-300 dark:border-yellow-400/60 text-yellow-900 dark:text-yellow-100 shadow-[0_0_8px_rgba(234,179,8,0.3)]",
+                        "from-rose-500 to-red-600 dark:from-rose-600/95 dark:to-red-700/95 border-rose-400 dark:border-rose-500/60 text-white dark:text-rose-100 shadow-[0_0_8px_rgba(244,63,94,0.3)]",
+                        "from-orange-500 to-red-600 dark:from-orange-600/95 dark:to-red-700/95 border-orange-400 dark:border-orange-500/60 text-white dark:text-orange-100 shadow-[0_0_8px_rgba(249,115,22,0.3)]",
+                        "from-teal-500 to-cyan-600 dark:from-teal-600/95 dark:to-cyan-700/95 border-teal-400 dark:border-teal-500/60 text-white dark:text-teal-100 shadow-[0_0_8px_rgba(20,184,166,0.3)]",
+                        "from-fuchsia-500 to-purple-600 dark:from-fuchsia-600/95 dark:to-purple-700/95 border-fuchsia-400 dark:border-fuchsia-500/60 text-white dark:text-fuchsia-100 shadow-[0_0_8px_rgba(217,70,239,0.3)]",
+                        "from-blue-500 to-indigo-600 dark:from-blue-600/95 dark:to-indigo-700/95 border-blue-400 dark:border-blue-500/60 text-white dark:text-blue-100 shadow-[0_0_8px_rgba(59,130,246,0.3)]",
+                        "from-red-500 to-rose-600 dark:from-red-600/95 dark:to-rose-700/95 border-red-400 dark:border-red-500/60 text-white dark:text-red-100 shadow-[0_0_8px_rgba(239,68,68,0.3)]",
+                        "from-purple-500 to-fuchsia-600 dark:from-purple-600/95 dark:to-fuchsia-700/95 border-purple-400 dark:border-purple-500/60 text-white dark:text-purple-100 shadow-[0_0_8px_rgba(168,85,247,0.3)]"
+                      ];
+                      const safeChannel = Math.max(1, Math.min(16, channel || 1));
+                      return midiColors[safeChannel - 1];
+                    };
+
+                    return activeSong.tracks?.map((track) => {
+                      if (track.isGenerating) {
+                        return (
+                          <div
+                            key={track.id}
+                            className="flex flex-col gap-2 p-3 rounded-2xl bg-purple-500/5 border border-purple-500/20 transition-all duration-300 relative overflow-hidden"
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-indigo-500/5 to-purple-500/5 pointer-events-none" />
+                            
+                            <div className="flex items-center gap-2">
+                              <span className="w-3.5 h-3.5 block border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                              <div className="text-[11px] font-black text-foreground truncate flex-grow">
+                                {track.name}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[8px] font-black text-purple-400 uppercase tracking-wider">
+                                <span>IA Componiendo...</span>
+                                <span className="font-mono">{track.progress || 0}%</span>
+                              </div>
+                              <div className="w-full bg-muted/50 rounded-full h-1 overflow-hidden">
+                                <div 
+                                  className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full transition-all duration-300 rounded-full"
+                                  style={{ width: `${track.progress || 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+
+                    const sectionsCount = Object.keys(track.sectionNotes || {}).length;
+                    const totalSections = activeSong.sections.length;
+
+                    const isMuted = track.muted === true;
+                    const anySoloed = activeSong.tracks?.some(t => t.soloed === true) || false;
+                    const isImplicitlyMuted = anySoloed && !track.soloed;
+                    const isSilent = isMuted || isImplicitlyMuted;
+
+                    return (
+                      <div
+                        key={track.id}
+                        className={`flex flex-col gap-2.5 p-3 rounded-2xl border transition-all duration-300 relative group overflow-hidden ${
+                          isSilent
+                            ? "bg-muted/10 border-border/30 opacity-70"
+                            : "bg-card/45 border-border/80 shadow-sm"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className={`p-1.5 rounded-lg shrink-0 bg-gradient-to-r ${getTrackColorClasses(track.name, track.midiChannel)}`}>
+                              <Music className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-[11px] font-black text-foreground truncate max-w-[120px]" title={track.name}>
+                                {track.name}
+                              </h4>
+                              <div className="text-[8px] text-muted-foreground">
+                                {sectionsCount}/{totalSections} secciones
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Track controls: Mute, Solo, Delete */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                setVisiblePianoRollTracks(prev => {
+                                  const newSet = new Set(prev);
+                                  if (newSet.has(track.id)) {
+                                    newSet.delete(track.id);
+                                  } else {
+                                    newSet.add(track.id);
+                                  }
+                                  return newSet;
+                                });
+                              }}
+                              className={`w-5.5 h-5.5 rounded flex items-center justify-center transition-all ${
+                                visiblePianoRollTracks.has(track.id)
+                                  ? "bg-blue-500/20 text-blue-500 border border-blue-500/40"
+                                  : "bg-muted/40 hover:bg-muted/80 text-muted-foreground"
+                              }`}
+                              title="Ver en Piano Roll"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleTrackMute(null, track.id)}
+                              className={`w-5.5 h-5.5 rounded text-[10px] font-black transition-all ${
+                                isMuted
+                                  ? "bg-amber-500/20 text-amber-500 border border-amber-500/40"
+                                  : "bg-muted/40 hover:bg-muted/80 text-muted-foreground"
+                              }`}
+                              title="Mute (M)"
+                            >
+                              M
+                            </button>
+                            <button
+                              onClick={() => handleToggleTrackSolo(null, track.id)}
+                              className={`w-5.5 h-5.5 rounded text-[10px] font-black transition-all ${
+                                track.soloed
+                                  ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/40"
+                                  : "bg-muted/40 hover:bg-muted/80 text-muted-foreground"
+                              }`}
+                              title="Solo (S)"
+                            >
+                              S
+                            </button>
+                            
+                            {!track.isProgressionRhythm && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="w-5.5 h-5.5 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                onClick={() => handleDeleteTrack(null, track.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Volume Slider & MIDI Channel selector */}
+                        <div className="grid grid-cols-2 gap-2 items-center">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[8px] text-muted-foreground font-black">VOL</span>
+                            <input
+                              type="range"
+                              min="0.0"
+                              max="1.0"
+                              step="0.05"
+                              value={track.volume !== undefined ? track.volume : 0.7}
+                              onChange={(e) => handleUpdateTrackVolume(null, track.id, Number(e.target.value))}
+                              className="w-full accent-purple-550 h-1 bg-muted rounded-lg cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-muted-foreground font-black">CH</span>
+                            <select
+                              value={track.midiChannel || 1}
+                              onChange={(e) => handleUpdateTrackChannel(null, track.id, Number(e.target.value))}
+                              className="rounded-lg border border-border bg-background text-foreground h-6 px-1.5 text-[9px] font-bold focus:outline-none hover:bg-muted cursor-pointer flex-grow"
+                            >
+                              {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                                <option key={ch} value={ch}>
+                                  Ch {ch}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Modular AI Generation Section Pills */}
+                        <div className="space-y-1 border-t border-border/10 pt-2">
+                          {track.isProgressionRhythm ? (
+                            <div className="text-[8px] text-purple-400 font-bold bg-purple-550/5 border border-purple-550/10 px-1.5 py-0.5 rounded-md truncate">
+                              ⚡ Auto-sincronizado
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {activeSong.sections.map((sect) => {
+                                const notesList = track.sectionNotes?.[sect.id];
+                                const hasNotes = notesList && notesList.length > 0;
+                                const isGenerating = generatingSectionIds[sect.id];
+
+                                return (
+                                  <button
+                                    key={sect.id}
+                                    disabled={isGenerating}
+                                    onClick={() => {
+                                      setRegenTrackId(track.id);
+                                      setRegenSectionId(sect.id);
+                                      setIsSectionRegenOpen(true);
+                                    }}
+                                    className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold border transition-all duration-150 ${
+                                      hasNotes
+                                        ? "bg-purple-500/5 border-purple-500/20 text-purple-400 hover:bg-purple-500/15"
+                                        : "bg-muted/20 border-dashed border-border/50 text-muted-foreground hover:bg-muted/50"
+                                    }`}
+                                    title={`Componer / regenerar melodía de la sección ${sect.type}`}
+                                  >
+                                    {isGenerating ? (
+                                      <span className="w-1.5 h-1.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                                    ) : hasNotes ? (
+                                      <Check className="w-2.5 h-2.5 text-purple-400" />
+                                    ) : (
+                                      <Sparkles className="w-2.5 h-2.5 text-muted-foreground/60" />
+                                    )}
+                                    <span>{sect.type.substring(0, 4)}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+                </div>
+              </div>
+
+              {/* MIDI Activity Indicator (minimal) */}
+              <div className="border-t border-border/30 pt-2 flex-shrink-0 flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${midiActivity ? 'bg-indigo-500 shadow-sm animate-pulse' : 'bg-muted-foreground/30'}`} />
+                <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                  {midiActivity ? 'MIDI Activo' : 'MIDI en Espera'}
+                </span>
+              </div>
+
+            </div>
+          )}
+
+          {/* RIGHT VIEWING PANEL: Studio, PianoRoll, Library */}
+          <div className="flex-1 flex flex-col overflow-y-auto w-full p-6 relative h-full">
+            
+            {/* Tab 1: Studio Composer Workbench */}
+            <TabsContent value="estudio" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col">
           <div className="w-full space-y-6">
             {!activeSong ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
@@ -3348,281 +2042,6 @@ export function SongGenerator() {
                     </div>
                   </div>
 
-                  {/* Studio DAW MIDI Playback Control Panel */}
-                  <PlaybackControls
-                    isPlaying={isPlaying}
-                    playbackSectionId={playbackSectionId}
-                    playbackChordIndex={playbackChordIndex}
-                    activePlaybackNotes={activePlaybackNotes}
-                    togglePlayback={togglePlayback}
-                    stopPlayback={stopPlayback}
-                    playbackMode={playbackMode}
-                    setPlaybackMode={setPlaybackMode}
-                    selectedRhythmPattern={selectedRhythmPattern}
-                    setSelectedRhythmPattern={setSelectedRhythmPattern}
-                    selectedArpeggioPattern={selectedArpeggioPattern}
-                    setSelectedArpeggioPattern={setSelectedArpeggioPattern}
-                    savedRhythms={savedRhythms}
-                    isMidiSupported={isMidiSupported}
-                    midiOutputs={midiOutputs}
-                    selectedOutputId={selectedOutputId}
-                    setSelectedOutputId={setSelectedOutputId}
-                    midiChannel={midiChannel}
-                    setMidiChannel={setMidiChannel}
-                    midiActivity={midiActivity}
-                    playbackVolume={playbackVolume}
-                    setPlaybackVolume={setPlaybackVolume}
-                    playbackBpm={playbackBpm}
-                    setPlaybackBpm={setPlaybackBpm}
-                    loopMode={loopMode}
-                    setLoopMode={setLoopMode}
-                    onOpenTrackComposer={() => {
-                      if (activeSectionId) {
-                        setComposerSectionId(activeSectionId);
-                      }
-                      setIsTrackComposerOpen(true);
-                    }}
-                  />
-
-                  {/* Mezclador Multicanal de Pistas Globales de la Canción (Sinfonía AI) */}
-                  {activeSong.tracks && activeSong.tracks.length > 0 && (
-                    <div className="w-full bg-card/40 border border-border/40 rounded-3xl p-5 space-y-4 shadow-xl backdrop-blur-md">
-                      <div className="flex items-center justify-between pb-3 border-b border-border/30">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
-                          <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
-                            Mezclador de Pistas Sinfonía AI
-                          </h3>
-                          <span className="px-2.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-[9px] font-bold text-purple-400">
-                            {activeSong.tracks.length} {activeSong.tracks.length === 1 ? 'Pista' : 'Pistas'} Activas
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          Las pistas suenan en paralelo sincronizadas por sección sobre sus canales MIDI
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {activeSong.tracks.map((track) => {
-                          if (track.isGenerating) {
-                            return (
-                              <div
-                                key={track.id}
-                                className="flex flex-col lg:flex-row lg:items-center gap-4 p-4 rounded-2xl bg-purple-500/5 border border-purple-500/20 transition-all duration-300 relative overflow-hidden"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-indigo-500/5 to-purple-500/5 pointer-events-none" />
-                                
-                                <div className="flex items-center gap-2.5 min-w-[200px]">
-                                  <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-400">
-                                    <span className="w-4 h-4 block border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                                  </div>
-                                  <div>
-                                    <h4 className="text-xs font-black text-foreground flex items-center gap-2">
-                                      {track.name}
-                                    </h4>
-                                    <div className="text-[9px] text-purple-400 font-bold mt-0.5 animate-pulse">
-                                      Componiendo pista con IA...
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex-grow flex flex-col justify-center gap-1.5 min-w-[200px]">
-                                  <div className="flex items-center justify-between text-[9px] font-black text-purple-400 uppercase tracking-wider">
-                                    <span>Progreso de Composición AI</span>
-                                    <span className="font-mono">{track.progress || 0}%</span>
-                                  </div>
-                                  <div className="w-full bg-muted/50 rounded-full h-2 overflow-hidden border border-border/30">
-                                    <div 
-                                      className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full transition-all duration-300 rounded-full"
-                                      style={{ width: `${track.progress || 0}%` }}
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="text-[10px] text-muted-foreground/80 lg:text-right font-medium italic min-w-[150px]">
-                                  Sincronizando secciones...
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          const sectionsCount = Object.keys(track.sectionNotes || {}).length;
-                          const totalSections = activeSong.sections.length;
-
-                          const isMuted = track.muted === true;
-                          const anySoloed = activeSong.tracks?.some(t => t.soloed === true) || false;
-                          const isImplicitlyMuted = anySoloed && !track.soloed;
-                          const isSilent = isMuted || isImplicitlyMuted;
-
-                          return (
-                            <div
-                              key={track.id}
-                              className={`flex flex-col lg:flex-row lg:items-center gap-4 p-4 rounded-2xl border transition-all duration-300 relative group overflow-hidden ${
-                                isSilent
-                                  ? "bg-muted/10 border-border/20 opacity-55 hover:opacity-75"
-                                  : "bg-muted/30 border-border/30 hover:border-purple-500/20"
-                              }`}
-                            >
-                              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/0 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-                              {/* Track Name & Identification */}
-                              <div className="flex items-center justify-between lg:justify-start gap-3 min-w-[200px]">
-                                <div className="flex items-center gap-2.5">
-                                  <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-                                    <Music className="w-4 h-4" />
-                                  </div>
-                                  <div>
-                                    <h4 className="text-xs font-black text-foreground">
-                                      {track.name}
-                                    </h4>
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                      <span className="text-[9px] text-muted-foreground font-semibold">
-                                        Completado:
-                                      </span>
-                                      <span className="text-[9px] text-purple-400 font-bold">
-                                        {sectionsCount}/{totalSections} secciones
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="w-8 h-8 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                  onClick={() => handleDeleteTrack(null, track.id)}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-
-                              {/* Mixer Controls (MIDI Channel & Volume Slider) */}
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-grow">
-                                {/* MIDI Channel Selector */}
-                                <div className="space-y-1 min-w-[120px]">
-                                  <label className="text-[9px] font-black text-muted-foreground uppercase tracking-wider block">
-                                    Canal MIDI
-                                  </label>
-                                  <select
-                                    value={track.midiChannel}
-                                    onChange={(e) => handleUpdateTrackChannel(null, track.id, Number(e.target.value))}
-                                    className="w-full rounded-xl border border-border/50 bg-card hover:bg-muted text-foreground h-9 px-3 text-[11px] font-bold focus:outline-none transition-colors cursor-pointer"
-                                  >
-                                    {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                                      <option key={ch} value={ch}>
-                                        Canal {ch}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-
-                                {/* Mute & Solo Buttons */}
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-black text-muted-foreground uppercase tracking-wider block">
-                                    Mezcla
-                                  </label>
-                                  <div className="flex items-center gap-1.5 h-9">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleTrackMute(null, track.id)}
-                                      className={`w-9 h-9 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center border select-none ${
-                                        track.muted
-                                          ? "bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30 hover:text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
-                                          : "bg-background/50 border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                      }`}
-                                      title="Silenciar Pista (Mute)"
-                                    >
-                                      M
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleTrackSolo(null, track.id)}
-                                      className={`w-9 h-9 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center border select-none ${
-                                        track.soloed
-                                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30 hover:text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
-                                          : "bg-background/50 border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                      }`}
-                                      title="Solo Pista (Solo)"
-                                    >
-                                      S
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {/* Volume Slider */}
-                                <div className="space-y-1 flex-grow">
-                                  <div className="flex items-center justify-between text-[9px] font-black text-muted-foreground uppercase tracking-wider">
-                                    <span>Volumen de Salida</span>
-                                    <span className="text-purple-400 font-bold">
-                                      {Math.round((track.volume !== undefined ? track.volume : 0.7) * 100)}%
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 h-9">
-                                    <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
-                                    <input
-                                      type="range"
-                                      min="0.0"
-                                      max="1.0"
-                                      step="0.05"
-                                      value={track.volume !== undefined ? track.volume : 0.7}
-                                      onChange={(e) => handleUpdateTrackVolume(null, track.id, Number(e.target.value))}
-                                      className="w-full accent-purple-500 h-1 bg-muted rounded-lg cursor-pointer transition-all focus:outline-none"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Sections Orchestrator (Modular IA Generation pills) */}
-                              <div className="flex flex-col gap-1 min-w-[280px]">
-                                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider block">
-                                  Componer / Regenerar Secciones
-                                </span>
-                                <div className="flex flex-wrap items-center gap-1.5 py-1">
-                                  {activeSong.sections.map((sect) => {
-                                    const notesList = track.sectionNotes?.[sect.id];
-                                    const hasNotes = notesList && notesList.length > 0;
-                                    const isGenerating = generatingSectionIds[sect.id];
-
-                                    return (
-                                      <button
-                                        key={sect.id}
-                                        disabled={isGenerating}
-                                        onClick={() => {
-                                          setRegenTrackId(track.id);
-                                          setRegenSectionId(sect.id);
-                                          setRegenUserPrompt(track.prompts?.[sect.id] || "");
-                                          setIsSectionRegenOpen(true);
-                                        }}
-                                        className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all border duration-200 cursor-pointer ${
-                                          hasNotes
-                                            ? "bg-purple-500/10 border-purple-500/40 text-purple-400 shadow-sm hover:bg-purple-500/20 hover:border-purple-400"
-                                            : "bg-muted/35 border-dashed border-border/80 text-muted-foreground hover:bg-muted/70 hover:border-muted-foreground/30"
-                                        } disabled:opacity-50`}
-                                      >
-                                        {isGenerating ? (
-                                          <span className="w-2.5 h-2.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-1" />
-                                        ) : hasNotes ? (
-                                          <Check className="w-3 h-3 text-purple-400" />
-                                        ) : (
-                                          <Sparkles className="w-2.5 h-2.5 text-muted-foreground/70" />
-                                        )}
-                                        {sect.type}
-                                        {hasNotes && (
-                                          <span className="text-[8px] opacity-75 font-semibold">
-                                            ({notesList.length})
-                                          </span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Creador de Ritmos Personalizados (Sequenciador de 16 Pasos) */}
                   <RhythmSequencer
                     playbackMode={playbackMode}
@@ -3648,6 +2067,7 @@ export function SongGenerator() {
                     generatingSectionIds={generatingSectionIds}
                     handleRegenerateSection={handleRegenerateSection}
                     loading={loading}
+                    playbackSectionId={playbackSectionId}
                   />
 
                   {selectedSection && (
@@ -3655,11 +2075,42 @@ export function SongGenerator() {
                       selectedSection={selectedSection}
                       generatingSectionIds={generatingSectionIds}
                       getRoleColor={getRoleColor}
+                      tracks={activeSong.tracks || []}
+                      onRegenerateTrackSectionClick={(trackId, sectionId) => {
+                        setRegenTrackId(trackId);
+                        setRegenSectionId(sectionId);
+                        setIsSectionRegenOpen(true);
+                      }}
                     />
                   )}
                 </div>
               )}
           </div>
+        </TabsContent>
+
+        {/* Tab 3: Interactive Piano Roll View */}
+        <TabsContent value="pianoroll" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col w-full h-full">
+          {activeSong ? (
+            <PianoRoll
+              activeSong={activeSong}
+              isPlaying={isPlaying}
+              playbackSectionId={playbackSectionId}
+              playbackChordIndex={playbackChordIndex}
+              playbackBpm={playbackBpm}
+              playbackVolume={playbackVolume}
+              togglePlayback={togglePlayback}
+              startPlayback={startPlayback}
+              stopPlayback={stopPlayback}
+              setPlaybackSectionId={setPlaybackSectionId}
+              setPlaybackChordIndex={setPlaybackChordIndex}
+              visibleTrackIds={visiblePianoRollTracks}
+              onUpdateNote={handleUpdateNote}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
+              <h3 className="text-xl font-bold">Carga una canción para ver el Piano Roll</h3>
+            </div>
+          )}
         </TabsContent>
 
         {/* Tab 2: Premium Visual Project Library Explorer */}
@@ -3677,226 +2128,29 @@ export function SongGenerator() {
             }}
           />
         </TabsContent>
+          </div>
+        </div>
       </Tabs>
 
       {/* AI Track Composer Modal Dialog */}
-      <Dialog open={isTrackComposerOpen} onOpenChange={setIsTrackComposerOpen}>
-        <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto rounded-3xl border-purple-500/20 bg-card/95 backdrop-blur-md shadow-2xl p-6 overflow-x-hidden flex flex-col">
-          <DialogHeader className="pb-3 border-b border-border/30">
-            <DialogTitle className="text-xl font-black flex items-center gap-2 text-purple-400">
-              <Sparkles className="w-5 h-5 text-purple-500 animate-pulse" />
-              Sinfonía AI: Diseñador de Pistas y Arreglista Multicanal
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Agrega voces melódicas, líneas de bajo o arreglos instrumentales globales. La IA los sincronizará y armonizará automáticamente para toda la canción.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5 py-4">
-            {/* Global Generation Info Banner */}
-            <div className="p-3.5 bg-purple-500/10 border border-purple-500/20 rounded-2xl space-y-1">
-              <div className="text-[10px] uppercase font-bold text-purple-400">Generación Global de la Canción</div>
-              <div className="text-xs font-semibold text-foreground leading-normal">
-                Esta pista se compondrá en paralelo para **todas las secciones** de la canción en un solo clic. Después podrás regenerar o ajustar cualquier sección de forma independiente.
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Track Name */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground">
-                  Nombre de la Pista
-                </Label>
-                <Input
-                  value={composerTrackName}
-                  onChange={(e) => setComposerTrackName(e.target.value)}
-                  placeholder="Ej. Línea de Bajo, Voz Principal..."
-                  className="rounded-xl border-border bg-card h-10 text-xs font-semibold"
-                />
-              </div>
-
-              {/* Predefined templates buttons */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground">
-                  Plantillas Rápidas
-                </Label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setComposerTrackName("Línea de Bajo");
-                      setComposerMidiChannel(2);
-                      setComposerInstrumentPreset("grand-piano");
-                      setComposerUserPrompt("Línea de bajo caminante (walking bass) en negras, acentuando la tónica y la quinta de cada acorde.");
-                    }}
-                    className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400"
-                  >
-                    🎸 Bajo Caminante
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setComposerTrackName("Melodía Principal");
-                      setComposerMidiChannel(3);
-                      setComposerInstrumentPreset("vintage-rhodes");
-                      setComposerUserPrompt("Melodía cantable y expresiva con notas ligadas y saltos melódicos suaves.");
-                    }}
-                    className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400"
-                  >
-                    🎤 Voz Melódica
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setComposerTrackName("Batería (Standard)");
-                      setComposerMidiChannel(10);
-                      setComposerInstrumentPreset("drum-kit");
-                      setComposerUserPrompt("Patrón de batería estándar GM en canal 10. Bombo en C3 (tiempo 0 y 2), caja en D3 (tiempo 1 y 3) y contratiempo/charles cerrado en F#3 constante en corcheas.");
-                    }}
-                    className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 col-span-2 animate-pulse"
-                  >
-                    🥁 Batería (Standard Drum Kit - Ch. 10)
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full">
-              {/* MIDI Channel Selection */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground">
-                  Canal MIDI de Salida
-                </Label>
-                <select
-                  value={composerMidiChannel}
-                  onChange={(e) => setComposerMidiChannel(parseInt(e.target.value, 10))}
-                  className="w-full rounded-xl border border-border bg-card hover:bg-muted text-foreground h-10 px-3 text-xs font-semibold focus:outline-none transition-colors cursor-pointer"
-                >
-                  {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                    <option key={ch} value={ch}>
-                      Canal {ch} {ch === 1 ? "(General / Acordes)" : ch === 10 ? "(Batería / Percusión estándar)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Prompt Guidance Area */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <Label className="text-xs font-bold text-muted-foreground">
-                  Dirección y Prompt para la Melodía
-                </Label>
-                <span className="text-[9px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                  Armonización Sincronizada Activa
-                </span>
-              </div>
-              <textarea
-                value={composerUserPrompt}
-                onChange={(e) => setComposerUserPrompt(e.target.value)}
-                placeholder="Ej. Melodía arpegiada rápida en semicorcheas, alegre, que empiece en la tercera de cada acorde para dar una sensación dulce de tensión armónica..."
-                rows={4}
-                className="w-full rounded-xl border border-border bg-card p-3 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none hover:bg-card/85 transition-colors"
-              />
-              <p className="text-[10px] text-muted-foreground leading-normal italic">
-                *Nota: La IA calculará automáticamente los tonos de paso y las tensiones del acorde para que la pista armonice sin disonancias indeseadas.*
-              </p>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-border/30">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setIsTrackComposerOpen(false)}
-              className="rounded-xl h-10 text-xs font-bold text-muted-foreground hover:bg-muted"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={handleGenerateTrack}
-              disabled={!composerUserPrompt.trim()}
-              className="rounded-xl h-10 px-5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-950/20 flex items-center gap-2 transition-all active:scale-[0.98]"
-            >
-              <Sparkles className="w-4 h-4 animate-pulse" />
-              Generar Pista Completa con IA
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <TrackComposerDialog
+        open={isTrackComposerOpen}
+        onOpenChange={setIsTrackComposerOpen}
+        activeSong={activeSong}
+        onGenerateTrack={(trackName, midiChannel, instrumentPreset, prompt) =>
+          handleGenerateTrack({ trackName, midiChannel, instrumentPreset, prompt })
+        }
+      />
 
       {/* AI Section Melody Regeneration Modal Dialog */}
-      <Dialog open={isSectionRegenOpen} onOpenChange={setIsSectionRegenOpen}>
-        <DialogContent className="sm:max-w-[500px] rounded-3xl border-purple-500/20 bg-card/95 backdrop-blur-md shadow-2xl p-6 overflow-x-hidden flex flex-col">
-          <DialogHeader className="pb-3 border-b border-border/30">
-            <DialogTitle className="text-lg font-black flex items-center gap-2 text-purple-400">
-              <Sparkles className="w-5 h-5 text-purple-500 animate-pulse" />
-              Sinfonía AI: Componer / Regenerar Sección
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Compondrá o reemplazará las notas melódicas para la sección seleccionada de esta pista sin afectar al resto de la canción.
-            </DialogDescription>
-          </DialogHeader>
-
-          {activeSong && (
-            <div className="space-y-4 py-4">
-              <div className="p-3 bg-muted/40 border border-border/30 rounded-2xl space-y-1">
-                <div className="text-[10px] uppercase font-bold text-muted-foreground">Pista Activa</div>
-                <div className="text-xs font-black text-foreground">
-                  {activeSong.tracks?.find(t => t.id === regenTrackId)?.name} (Canal MIDI {activeSong.tracks?.find(t => t.id === regenTrackId)?.midiChannel})
-                </div>
-                <div className="text-[10px] uppercase font-bold text-muted-foreground mt-2">Sección a Componer</div>
-                <div className="text-xs font-black text-purple-400 flex items-center gap-1.5">
-                  <span>{activeSong.sections.find(s => s.id === regenSectionId)?.type}</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    ({activeSong.sections.find(s => s.id === regenSectionId)?.key} {activeSong.sections.find(s => s.id === regenSectionId)?.scale})
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground flex items-center justify-between">
-                  <span>Instrucción / Prompt de Dirección Musical</span>
-                  <span className="text-[10px] text-purple-400 font-semibold">Sincronización Automática</span>
-                </Label>
-                <textarea
-                  value={regenUserPrompt}
-                  onChange={(e) => setRegenUserPrompt(e.target.value)}
-                  placeholder="Ej. Línea de bajo caminante alegre, melodía dulce que ascienda, improvisación en corcheas..."
-                  rows={4}
-                  className="w-full rounded-xl border border-border bg-card p-3 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none hover:bg-card/85 transition-colors"
-                />
-                <p className="text-[10px] text-muted-foreground italic">
-                  Tip: Indica melodías de referencia, ritmos (ej. síncopas, notas largas) o vibra para guiar a la IA.
-                </p>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-2 border-t border-border/30">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsSectionRegenOpen(false)}
-                  className="rounded-xl text-xs font-semibold px-4 cursor-pointer hover:bg-muted"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={async () => {
-                    setIsSectionRegenOpen(false);
-                    await handleRegenerateTrackSection(regenTrackId, regenSectionId, regenUserPrompt);
-                  }}
-                  className="rounded-xl text-xs font-black px-5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white cursor-pointer shadow-lg hover:shadow-purple-500/20"
-                >
-                  Generar con AI
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <SectionRegenDialog
+        open={isSectionRegenOpen}
+        onOpenChange={setIsSectionRegenOpen}
+        activeSong={activeSong}
+        regenTrackId={regenTrackId}
+        regenSectionId={regenSectionId}
+        onRegenerate={handleRegenerateTrackSection}
+      />
     </div>
   );
 }

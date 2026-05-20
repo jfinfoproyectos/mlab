@@ -1,7 +1,4 @@
-import { AppSidebar } from "@/components/sidebar/app-sidebar"
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
 import { ModeToggle } from "@/components/theme/mode-toggle"
-import { Separator } from "@/components/ui/separator"
 
 export default async function DashboardLayout({
   children,
@@ -9,19 +6,22 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="h-svh flex flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4">
-          <div className="flex items-center gap-2">
-            <SidebarTrigger className="-ml-1" />
+    <div className="h-svh w-screen flex flex-col overflow-hidden bg-background">
+      <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+        <div className="flex items-center gap-4 flex-grow min-w-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="font-black text-sm tracking-widest text-primary uppercase">MusicLab</span>
+            <span className="text-[10px] font-black uppercase text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border/40">Studio</span>
           </div>
-          <ModeToggle />
-        </header>
-        <div className="flex flex-1 flex-col gap-4 p-4 overflow-y-auto">
-          {children}
+          <div id="header-portal" className="flex-1 flex items-center gap-2 justify-end overflow-x-auto no-scrollbar py-1" />
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+        <div className="flex items-center gap-4 flex-shrink-0 border-l border-border/30 pl-4">
+          <ModeToggle />
+        </div>
+      </header>
+      <div className="flex flex-1 overflow-hidden w-full relative">
+        {children}
+      </div>
+    </div>
   )
 }

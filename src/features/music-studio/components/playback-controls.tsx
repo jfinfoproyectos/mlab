@@ -91,55 +91,56 @@ export function PlaybackControls({
   onOpenTrackComposer
 }: PlaybackControlsProps) {
   return (
-    <Card className="border-primary/20 shadow-lg rounded-3xl bg-zinc-950/85 dark:bg-zinc-950/90 text-zinc-100 p-5 space-y-4 backdrop-blur-md relative overflow-hidden">
+    <Card className="border-border/40 shadow-2xl rounded-3xl bg-card/50 dark:bg-zinc-950/40 text-foreground p-6 space-y-6 backdrop-blur-xl relative overflow-hidden border">
       <div className="absolute right-0 top-0 translate-x-16 -translate-y-16 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
       
       {/* Header line */}
-      <div className="flex justify-between items-center border-b border-zinc-800/60 pb-3">
+      <div className="flex justify-between items-center border-b border-border/40 pb-4">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse" />
+          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
             MIDI SYNTHESIZER / REPRODUCTOR DEL DAW
           </span>
         </div>
         
         {/* Active playing chord display */}
         {isPlaying && playbackSectionId ? (
-          <div className="text-xs font-black bg-emerald-500/15 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5 animate-pulse">
+          <div className="text-[10px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-3.5 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.15)] animate-pulse">
             <Music className="w-3.5 h-3.5" />
-            Reproduciendo: {activePlaybackNotes.length > 0 ? "Acorde Activo" : "Silencio"}
+            REPRODUCCIÓN ACTIVA
           </div>
         ) : (
-          <div className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
-            <Square className="w-3.5 h-3.5" />
-            Detenido
+          <div className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 uppercase tracking-wider">
+            <Square className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-600 fill-zinc-350 dark:fill-zinc-650" />
+            DETENIDO
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Controls Area: 7 cols */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className="lg:col-span-7 space-y-5">
+          {/* Row 1: Actions */}
           <div className="flex flex-wrap items-center gap-3">
             {/* Play / Pause Toggle Button */}
             <Button
               type="button"
               onClick={togglePlayback}
-              className={`rounded-xl h-11 px-5 font-bold shadow-md flex items-center gap-2 transition-all active:scale-[0.98] ${
+              className={`rounded-2xl h-12 px-6 font-black shadow-lg flex items-center gap-2 transition-all duration-200 active:scale-[0.97] border-0 text-zinc-950 ${
                 isPlaying 
-                  ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-900/20" 
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-950/20"
+                  ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-amber-500/20" 
+                  : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-emerald-500/20"
               }`}
             >
               {isPlaying ? (
                 <>
-                  <Pause className="w-4 h-4 text-white fill-white" />
-                  Pausar
+                  <Pause className="w-4 h-4 fill-zinc-950 text-zinc-950" />
+                  PAUSAR
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4 text-white fill-white" />
-                  Reproducir Canción
+                  <Play className="w-4 h-4 fill-zinc-950 text-zinc-950" />
+                  REPRODUCIR
                 </>
               )}
             </Button>
@@ -149,29 +150,34 @@ export function PlaybackControls({
               type="button"
               onClick={stopPlayback}
               disabled={!isPlaying && playbackChordIndex === -1}
-              variant="outline"
-              className="rounded-xl h-11 px-4 border-zinc-800 hover:bg-zinc-900 hover:text-white text-zinc-300 flex items-center gap-2"
+              className="rounded-2xl h-12 px-5 bg-zinc-155 hover:bg-zinc-200 dark:bg-zinc-900/60 border border-zinc-250 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white font-bold flex items-center gap-2 transition-all duration-200 active:scale-[0.97] disabled:opacity-40"
             >
-              <Square className="w-4 h-4 fill-zinc-400 text-zinc-400" />
-              Detener
+              <Square className="w-4 h-4 fill-zinc-500 dark:fill-zinc-400 text-zinc-500 dark:text-zinc-400" />
+              DETENER
             </Button>
 
             {/* Sinfonía AI / Arreglista Multitrack Button */}
             <Button
               type="button"
               onClick={onOpenTrackComposer}
-              className="rounded-xl h-11 px-4 bg-purple-600 hover:bg-purple-700 text-white font-extrabold shadow-md flex items-center gap-2 transition-all active:scale-[0.98] border border-purple-500/20"
+              className="rounded-2xl h-12 px-5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold shadow-lg shadow-purple-500/20 border border-purple-500/30 flex items-center gap-2 transition-all duration-200 active:scale-[0.97]"
             >
               <Music className="w-4 h-4 fill-white animate-pulse" />
-              Sinfonía AI (Pistas)
+              SINFONÍA AI (PISTAS)
             </Button>
+          </div>
 
+          {/* Row 2: Selectors & Loops */}
+          <div className="flex flex-wrap items-end gap-4">
             {/* Playback Mode Selector */}
-            <div className="flex flex-col gap-1 min-w-[130px]">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
+              <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                MODO DE REPRODUCCIÓN
+              </label>
               <select
                 value={playbackMode}
                 onChange={(e) => setPlaybackMode(e.target.value as "basic" | "rhythm" | "arpeggio" | "custom-rhythm")}
-                className="rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-200 h-11 px-3 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-zinc-900 transition-colors cursor-pointer"
+                className="rounded-2xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-foreground dark:text-zinc-200 h-12 px-4 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
               >
                 <option value="basic">🎵 Modo Básico</option>
                 <option value="rhythm">🥁 Modo Ritmos Presets</option>
@@ -182,11 +188,14 @@ export function PlaybackControls({
 
             {/* Popular Rhythm Pattern Selector */}
             {playbackMode === "rhythm" && (
-              <div className="flex flex-col gap-1 min-w-[170px] animate-in slide-in-from-left-2 duration-300">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in slide-in-from-left-2 duration-300">
+                <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                  PATRÓN DE RITMO
+                </label>
                 <select
                   value={selectedRhythmPattern}
                   onChange={(e) => setSelectedRhythmPattern(e.target.value)}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 text-emerald-400 h-11 px-3 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-zinc-900 transition-colors cursor-pointer"
+                  className="rounded-2xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-emerald-650 dark:text-emerald-400 h-12 px-4 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
                   title="Elige un patrón rítmico que combina acordes y arpegios"
                 >
                   <option value="pop-ballad">🎹 Balada Pop (Dinámico)</option>
@@ -212,11 +221,14 @@ export function PlaybackControls({
 
             {/* Premium Arpeggio Pattern Selector */}
             {playbackMode === "arpeggio" && (
-              <div className="flex flex-col gap-1 min-w-[170px] animate-in slide-in-from-left-2 duration-300">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in slide-in-from-left-2 duration-300">
+                <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                  PATRÓN DE ARPEGIO
+                </label>
                 <select
                   value={selectedArpeggioPattern}
                   onChange={(e) => setSelectedArpeggioPattern(e.target.value)}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 text-emerald-400 h-11 px-3 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-zinc-900 transition-colors cursor-pointer"
+                  className="rounded-2xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-emerald-655 dark:text-emerald-400 h-12 px-4 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
                   title="Elige un patrón de arpegio premium"
                 >
                   <option value="up-down">🏔️ Triángulo (Up-Down)</option>
@@ -232,46 +244,51 @@ export function PlaybackControls({
             )}
 
             {/* Loop Switch Toggle */}
-            <div className="flex items-center gap-1 bg-zinc-900/80 p-1.5 rounded-xl border border-zinc-800/80">
-              <button
-                type="button"
-                onClick={() => setLoopMode(loopMode === "song" ? "off" : "song")}
-                className={`p-1.5 rounded-lg text-[10px] font-extrabold px-2.5 transition-all ${
-                  loopMode === "song"
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
-                    : "text-zinc-400 hover:bg-zinc-800"
-                }`}
-                title="Buclear toda la canción"
-              >
-                <Repeat className="w-3.5 h-3.5 inline mr-1" />
-                BUCLE CANCIÓN
-              </button>
-              <button
-                type="button"
-                onClick={() => setLoopMode(loopMode === "section" ? "off" : "section")}
-                className={`p-1.5 rounded-lg text-[10px] font-extrabold px-2.5 transition-all ${
-                  loopMode === "section"
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
-                    : "text-zinc-400 hover:bg-zinc-800"
-                }`}
-                title="Buclear sólo la sección activa"
-              >
-                <Repeat className="w-3.5 h-3.5 inline mr-1" />
-                BUCLE SECCIÓN
-              </button>
+            <div className="flex flex-col gap-1.5 min-w-[200px]">
+              <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                MODO DE BUCLE
+              </label>
+              <div className="flex items-center gap-1 bg-muted/40 dark:bg-zinc-900/40 p-1 rounded-2xl border border-border/50 dark:border-zinc-800/80 h-12">
+                <button
+                  type="button"
+                  onClick={() => setLoopMode(loopMode === "song" ? "off" : "song")}
+                  className={`flex-1 h-full rounded-xl text-[10px] font-black px-2 transition-all duration-150 ${
+                    loopMode === "song"
+                      ? "bg-emerald-500/15 text-emerald-650 dark:text-emerald-400 border border-emerald-500/20 shadow-sm"
+                      : "text-muted-foreground hover:bg-muted/80 dark:hover:bg-zinc-800/40 hover:text-foreground dark:hover:text-zinc-200"
+                  }`}
+                  title="Buclear toda la canción"
+                >
+                  <Repeat className="w-3.5 h-3.5 inline mr-1" />
+                  CANCIÓN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoopMode(loopMode === "section" ? "off" : "section")}
+                  className={`flex-1 h-full rounded-xl text-[10px] font-black px-2 transition-all duration-150 ${
+                    loopMode === "section"
+                      ? "bg-emerald-500/15 text-emerald-650 dark:text-emerald-400 border border-emerald-500/20 shadow-sm"
+                      : "text-muted-foreground hover:bg-muted/80 dark:hover:bg-zinc-800/40 hover:text-foreground dark:hover:text-zinc-200"
+                  }`}
+                  title="Buclear sólo la sección activa"
+                >
+                  <Repeat className="w-3.5 h-3.5 inline mr-1" />
+                  SECCIÓN
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Sliders Block */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          {/* Row 3: Sliders Block */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Real-time BPM Slider */}
-            <div className="space-y-1.5 bg-zinc-900/30 p-3 rounded-2xl border border-zinc-900/60">
-              <div className="flex justify-between text-xs font-bold text-zinc-400">
+            <div className="space-y-2 bg-muted/20 dark:bg-zinc-900/20 p-4 rounded-2xl border border-border/40 dark:border-zinc-850/40">
+              <div className="flex justify-between text-xs font-bold text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
+                  <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   Tempo (BPM)
                 </span>
-                <span className="font-mono text-emerald-400">{playbackBpm} BPM</span>
+                <span className="font-mono font-black text-emerald-650 dark:text-emerald-400">{playbackBpm} BPM</span>
               </div>
               <input
                 type="range"
@@ -279,22 +296,22 @@ export function PlaybackControls({
                 max={220}
                 value={playbackBpm}
                 onChange={(e) => setPlaybackBpm(parseInt(e.target.value, 10))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none"
               />
             </div>
 
             {/* Real-time Volume Slider */}
-            <div className="space-y-1.5 bg-zinc-900/30 p-3 rounded-2xl border border-zinc-900/60">
-              <div className="flex justify-between text-xs font-bold text-zinc-400">
+            <div className="space-y-2 bg-muted/20 dark:bg-zinc-900/20 p-4 rounded-2xl border border-border/40 dark:border-zinc-850/40">
+              <div className="flex justify-between text-xs font-bold text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   {playbackVolume === 0 ? (
-                    <VolumeX className="w-3.5 h-3.5 text-zinc-500" />
+                    <VolumeX className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500" />
                   ) : (
-                    <Volume2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <Volume2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   )}
-                  Volumen Progresiones (Acordes)
+                  Volumen Progresiones
                 </span>
-                <span className="font-mono text-emerald-400">{Math.round(playbackVolume * 100)}%</span>
+                <span className="font-mono font-black text-emerald-655 dark:text-emerald-400">{Math.round(playbackVolume * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -303,74 +320,98 @@ export function PlaybackControls({
                 step={0.05}
                 value={playbackVolume}
                 onChange={(e) => setPlaybackVolume(parseFloat(e.target.value))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none"
               />
             </div>
           </div>
 
-          {/* MIDI Devices Configuration Bar (MIDI Output Only) */}
-          <div className="pt-3.5 border-t border-zinc-900 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-            {/* MIDI Output Select */}
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
-                Sincronización MIDI (Salida a Sintetizador / DAW)
-                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-100 ${midiActivity ? 'bg-emerald-400 shadow-md shadow-emerald-500/50 scale-[1.3]' : 'bg-zinc-800'}`} />
-              </label>
-              {isMidiSupported ? (
+          {/* Row 4: MIDI Devices Configuration Bar (MIDI Output Only) */}
+          <div className="bg-muted/20 dark:bg-zinc-900/20 border border-border/40 dark:border-zinc-850/40 p-4 rounded-2xl space-y-3.5">
+            <div className="flex items-center gap-2 border-b border-border/30 dark:border-zinc-900/40 pb-2">
+              <span className={`w-2 h-2 rounded-full transition-all duration-100 ${midiActivity ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] scale-[1.2]' : 'bg-zinc-350 dark:bg-zinc-800'}`} />
+              <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
+                RUTEO MIDI DE SALIDA (SINTETIZADORES EXTERNOS / DAW)
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+              {/* MIDI Output Select */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-[9px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                  DISPOSITIVO MIDI
+                </label>
+                {isMidiSupported ? (
+                  <select
+                    value={selectedOutputId}
+                    onChange={(e) => setSelectedOutputId(e.target.value)}
+                    className="w-full rounded-xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-foreground dark:text-zinc-300 h-10 px-3 text-[11px] font-bold focus:outline-none hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
+                  >
+                    <option value="">🚫 Ninguno (Solo instrumentos web)</option>
+                    {midiOutputs.map((output) => (
+                      <option key={output.id} value={output.id}>
+                        🎛️ {output.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-[10px] text-amber-600 dark:text-amber-500/80 bg-amber-500/5 p-2 rounded-xl border border-amber-500/10 italic">
+                    Web MIDI no soportado en este navegador (se recomienda Chrome/Edge)
+                  </div>
+                )}
+              </div>
+
+              {/* MIDI Channel Select */}
+              <div className="space-y-1.5 sm:col-span-1">
+                <label className="text-[9px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
+                  CANAL MIDI
+                </label>
                 <select
-                  value={selectedOutputId}
-                  onChange={(e) => setSelectedOutputId(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-300 h-9 px-3 text-[11px] font-semibold focus:outline-none hover:bg-zinc-800 transition-colors"
+                  value={midiChannel}
+                  onChange={(e) => setMidiChannel(parseInt(e.target.value, 10))}
+                  disabled={!selectedOutputId}
+                  className="w-full rounded-xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-foreground dark:text-zinc-300 h-10 px-3 text-[11px] font-bold focus:outline-none hover:bg-muted dark:hover:bg-zinc-900 transition-colors disabled:opacity-45 disabled:hover:bg-background cursor-pointer disabled:cursor-not-allowed select-none"
                 >
-                  <option value="">🚫 Ninguno (Solo instrumentos web)</option>
-                  {midiOutputs.map((output) => (
-                    <option key={output.id} value={output.id}>
-                      🎛️ {output.name}
+                  {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                    <option key={ch} value={ch}>
+                      Canal {ch}
                     </option>
                   ))}
                 </select>
-              ) : (
-                <div className="text-[10px] text-amber-500/80 bg-amber-500/5 p-2 rounded-xl border border-amber-500/10 italic">
-                  Web MIDI no soportado en este navegador (se recomienda Chrome/Edge)
-                </div>
-              )}
-            </div>
-
-            {/* MIDI Channel Select */}
-            <div className="space-y-1 sm:col-span-1">
-              <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
-                Canal MIDI
-              </label>
-              <select
-                value={midiChannel}
-                onChange={(e) => setMidiChannel(parseInt(e.target.value, 10))}
-                disabled={!selectedOutputId}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-300 h-9 px-3 text-[11px] font-semibold focus:outline-none hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:hover:bg-zinc-900 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                  <option key={ch} value={ch}>
-                    Canal {ch}
-                  </option>
-                ))}
-              </select>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Master Synthesizer Piano Keyboard Output visualizer: 5 cols */}
-        <div className="lg:col-span-5 border-l border-zinc-900 pl-0 lg:pl-5 space-y-2">
-          <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400 px-0.5">
-            <span className="flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
-              MONITOR DE SALIDA DE AUDIO (LIVE)
-            </span>
-            {isPlaying && activePlaybackNotes.length > 0 && (
-              <span className="text-[8px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                {activePlaybackNotes.join(' ')}
+        <div className="lg:col-span-5 bg-muted/10 dark:bg-zinc-950/50 border border-border/40 dark:border-zinc-850 p-5 rounded-2xl space-y-4 h-full flex flex-col justify-between">
+          <div className="space-y-3.5">
+            <div className="flex justify-between items-center text-[10px] font-black text-muted-foreground border-b border-border/30 dark:border-zinc-900 pb-2">
+              <span className="flex items-center gap-1.5 uppercase tracking-widest text-muted-foreground">
+                <Sliders className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                MONITOR DE NOTAS (LIVE)
               </span>
-            )}
+            </div>
+            
+            <div className="min-h-[48px] flex items-center justify-start">
+              {isPlaying && activePlaybackNotes.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {activePlaybackNotes.map(note => (
+                    <span key={note} className="font-mono font-black text-emerald-650 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/30 text-[10px] shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+                      {note}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-650 uppercase tracking-wide">
+                  SILENCIO / SIN EVENTOS MIDI
+                </span>
+              )}
+            </div>
           </div>
-          <PianoKeyboard activeNotes={activePlaybackNotes} />
+          
+          <div className="pt-2">
+            <PianoKeyboard activeNotes={activePlaybackNotes} />
+          </div>
         </div>
       </div>
     </Card>

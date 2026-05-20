@@ -70,6 +70,7 @@ export const songTrackSchema = z.object({
   progress: z.number().optional(),
   muted: z.boolean().optional().describe("Indica si la pista está silenciada"),
   soloed: z.boolean().optional().describe("Indica si la pista está en modo solo"),
+  isProgressionRhythm: z.boolean().optional().describe("Indica si la pista representa el ritmo de la progresión de acordes"),
 });
 
 export type SongTrack = z.infer<typeof songTrackSchema>;

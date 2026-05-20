@@ -12,6 +12,7 @@ interface ArrangementTimelineProps {
   generatingSectionIds: Record<string, boolean>;
   handleRegenerateSection: (section: SongSection) => void;
   loading: boolean;
+  playbackSectionId?: string | null;
 }
 
 export function ArrangementTimeline({
@@ -20,7 +21,8 @@ export function ArrangementTimeline({
   setActiveSectionId,
   generatingSectionIds,
   handleRegenerateSection,
-  loading
+  loading,
+  playbackSectionId
 }: ArrangementTimelineProps) {
   return (
     <div className="space-y-3">
@@ -32,24 +34,39 @@ export function ArrangementTimeline({
           const isSelected = activeSectionId === sect.id;
           const isGen = generatingSectionIds[sect.id];
           const hasChords = !!sect.chords;
+          const isPlaying = playbackSectionId === sect.id;
+          const showSelected = isSelected && !playbackSectionId;
 
           return (
             <div
               key={sect.id}
               onClick={() => {
-                if (!isGen) setActiveSectionId(sect.id);
+                if (!isGen && !playbackSectionId) setActiveSectionId(sect.id);
               }}
-              className={`group relative rounded-2xl border p-4 cursor-pointer transition-all duration-300 flex flex-col justify-between min-h-[120px] ${
-                isSelected 
-                  ? "bg-primary/10 border-primary shadow-md shadow-primary/5 scale-[1.02] z-10" 
-                  : isGen 
-                    ? "bg-muted/10 border-border/40 pointer-events-none"
-                    : "bg-card/25 border-border/40 hover:bg-card/45 hover:border-primary/20"
+              className={`group relative rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between min-h-[120px] ${
+                playbackSectionId ? "cursor-default" : "cursor-pointer"
+              } ${
+                isPlaying
+                  ? "bg-emerald-500/15 border-emerald-500 shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-500/40 scale-[1.03] z-10 animate-pulse"
+                  : showSelected 
+                    ? "bg-primary/10 border-primary shadow-md shadow-primary/5 scale-[1.02] z-10" 
+                    : isGen 
+                      ? "bg-muted/10 border-border/40 pointer-events-none"
+                      : playbackSectionId
+                        ? "bg-card/25 border-border/20 opacity-40"
+                        : "bg-card/25 border-border/40 hover:bg-card/45 hover:border-primary/20"
               }`}
             >
               <div className="space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                    {isPlaying && (
+                      <span className="flex items-end gap-0.5 h-3 mr-1" title="Reproduciendo">
+                        <span className="w-1 h-2 bg-emerald-500 rounded-full animate-bounce duration-500" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-3 bg-emerald-500 rounded-full animate-bounce duration-500" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1.5 bg-emerald-500 rounded-full animate-bounce duration-500" style={{ animationDelay: '300ms' }} />
+                      </span>
+                    )}
                     {sect.type}
                   </span>
                   
