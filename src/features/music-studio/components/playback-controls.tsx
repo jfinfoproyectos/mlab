@@ -30,8 +30,8 @@ interface PlaybackControlsProps {
   activePlaybackNotes: string[];
   togglePlayback: () => void;
   stopPlayback: () => void;
-  playbackMode: "basic" | "rhythm" | "arpeggio" | "custom-rhythm";
-  setPlaybackMode: (mode: "basic" | "rhythm" | "arpeggio" | "custom-rhythm") => void;
+  playbackMode: "basic" | "rhythm" | "arpeggio";
+  setPlaybackMode: (mode: "basic" | "rhythm" | "arpeggio") => void;
   selectedRhythmPattern: string;
   setSelectedRhythmPattern: (pattern: string) => void;
   selectedArpeggioPattern: string;
@@ -148,7 +148,7 @@ export function PlaybackControls({
             {/* Stop Button */}
             <Button
               type="button"
-              onClick={stopPlayback}
+              onClick={() => stopPlayback()}
               disabled={!isPlaying && playbackChordIndex === -1}
               className="rounded-2xl h-12 px-5 bg-zinc-155 hover:bg-zinc-200 dark:bg-zinc-900/60 border border-zinc-250 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white font-bold flex items-center gap-2 transition-all duration-200 active:scale-[0.97] disabled:opacity-40"
             >
@@ -176,13 +176,12 @@ export function PlaybackControls({
               </label>
               <select
                 value={playbackMode}
-                onChange={(e) => setPlaybackMode(e.target.value as "basic" | "rhythm" | "arpeggio" | "custom-rhythm")}
+                onChange={(e) => setPlaybackMode(e.target.value as "basic" | "rhythm" | "arpeggio")}
                 className="rounded-2xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-foreground dark:text-zinc-200 h-12 px-4 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
               >
                 <option value="basic">🎵 Modo Básico</option>
                 <option value="rhythm">🥁 Modo Ritmos Presets</option>
                 <option value="arpeggio">✨ Modo Arpegios</option>
-                <option value="custom-rhythm">🛠️ Ritmos Personalizados</option>
               </select>
             </div>
 

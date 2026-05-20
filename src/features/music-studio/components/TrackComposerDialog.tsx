@@ -12,7 +12,13 @@ interface TrackComposerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activeSong: SongStructure | null;
-  onGenerateTrack: (trackName: string, midiChannel: number, instrumentPreset: string, prompt: string) => void;
+  onGenerateTrack: (
+    trackName: string,
+    midiChannel: number,
+    instrumentPreset: string,
+    prompt: string,
+    syncWithProgression?: boolean
+  ) => void;
 }
 
 export function TrackComposerDialog({
@@ -25,6 +31,7 @@ export function TrackComposerDialog({
   const [composerMidiChannel, setComposerMidiChannel] = useState<number>(2);
   const [composerInstrumentPreset, setComposerInstrumentPreset] = useState<string>("grand-piano");
   const [composerUserPrompt, setComposerUserPrompt] = useState<string>("");
+  const [syncWithProgression, setSyncWithProgression] = useState<boolean>(false);
 
   const handleSubmit = () => {
     if (!composerUserPrompt.trim()) return;
@@ -32,7 +39,8 @@ export function TrackComposerDialog({
       composerTrackName,
       composerMidiChannel,
       composerInstrumentPreset,
-      composerUserPrompt
+      composerUserPrompt,
+      syncWithProgression
     );
     setComposerUserPrompt("");
   };
@@ -139,6 +147,27 @@ export function TrackComposerDialog({
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+          {/* Sincronización Opcional de Ritmo */}
+          <div className="flex items-start space-x-3 bg-purple-500/5 p-4 rounded-2xl border border-purple-500/10">
+            <input
+              type="checkbox"
+              id="syncWithProgression"
+              checked={syncWithProgression}
+              onChange={(e) => setSyncWithProgression(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer"
+            />
+            <div className="grid gap-1 leading-tight cursor-pointer" onClick={() => setSyncWithProgression(!syncWithProgression)}>
+              <label
+                htmlFor="syncWithProgression"
+                className="text-xs font-black text-foreground cursor-pointer select-none"
+              >
+                Coordinar rítmicamente con la pista de progresiones
+              </label>
+              <p className="text-[10px] text-muted-foreground leading-normal">
+                (Opcional) La IA analizará las notas y ritmos actuales del acompañamiento para que esta nueva pista toque de forma musicalmente complementaria y sincronizada.
+              </p>
             </div>
           </div>
 

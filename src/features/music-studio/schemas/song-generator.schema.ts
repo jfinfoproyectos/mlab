@@ -71,6 +71,7 @@ export const songTrackSchema = z.object({
   muted: z.boolean().optional().describe("Indica si la pista está silenciada"),
   soloed: z.boolean().optional().describe("Indica si la pista está en modo solo"),
   isProgressionRhythm: z.boolean().optional().describe("Indica si la pista representa el ritmo de la progresión de acordes"),
+  aiSections: z.record(z.string(), z.boolean()).optional().describe("Mapeo de sectionId a boolean indicando si la sección fue generada por IA"),
 });
 
 export type SongTrack = z.infer<typeof songTrackSchema>;
@@ -99,11 +100,7 @@ export const songSchema = z.object({
   description: z.string(),
   sections: z.array(songSectionSchema),
   tracks: z.array(songTrackSchema).optional(),
-  playbackMode: z.string().optional().describe("Modo de reproducción de acordes (basic, rhythm, arpeggio, custom-rhythm)"),
-  selectedRhythmPattern: z.string().optional().describe("Patrón rítmico seleccionado"),
-  selectedArpeggioPattern: z.string().optional().describe("Patrón de arpegio seleccionado"),
   playbackVolume: z.number().optional().describe("Volumen master de reproducción"),
-  customRhythmSteps: z.array(z.array(z.boolean())).optional().describe("Matriz de pasos personalizados de ritmo"),
   loopMode: z.string().optional().describe("Modo de bucle (song, section, off)"),
 });
 

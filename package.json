@@ -25,6 +25,7 @@
     "@prisma/client": "^7.8.0",
     "@tabler/icons-react": "^3.44.0",
     "@tanstack/react-table": "^8.21.3",
+    "@tonejs/midi": "^2.0.28",
     "ai": "^6.0.183",
     "better-auth": "^1.6.11",
     "class-variance-authority": "^0.7.1",

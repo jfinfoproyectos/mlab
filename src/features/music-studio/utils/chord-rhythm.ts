@@ -5,7 +5,8 @@ export function generateSectionChordRhythmNotes(
   pattern: string,
   mode: string,
   customSteps: boolean[][],
-  selectedArpeggioPattern: string
+  selectedArpeggioPattern: string,
+  isOutro: boolean = false
 ): Array<{ note: string; startBeat: number; durationBeats: number; velocity: number }> {
   const notes: Array<{ note: string; startBeat: number; durationBeats: number; velocity: number }> = [];
 
@@ -29,6 +30,29 @@ export function generateSectionChordRhythmNotes(
     return noteStr;
   };
 
+  const shiftNoteSemitones = (noteStr: string, semitones: number): string => {
+    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const matchNote = noteStr.match(/^([A-G][#b]?)([0-9])$/i);
+    if (matchNote) {
+      let name = matchNote[1];
+      if (name === "Db") name = "C#";
+      if (name === "Eb") name = "D#";
+      if (name === "Gb") name = "F#";
+      if (name === "Ab") name = "G#";
+      if (name === "Bb") name = "A#";
+      
+      const octave = parseInt(matchNote[2], 10);
+      const noteIdx = noteNames.indexOf(name);
+      if (noteIdx !== -1) {
+        const totalSemitones = octave * 12 + noteIdx + semitones;
+        const newOctave = Math.floor(totalSemitones / 12);
+        const newNoteName = noteNames[totalSemitones % 12];
+        return `${newNoteName}${Math.max(1, Math.min(8, newOctave))}`;
+      }
+    }
+    return noteStr;
+  };
+
   chords.forEach((chordObj, chordIdx) => {
     const chordNotes = chordObj.pianoNotes || [];
     if (chordNotes.length === 0) return;
@@ -40,6 +64,29 @@ export function generateSectionChordRhythmNotes(
     const voicing = chordNotes.length > 1 ? chordNotes.slice(1) : chordNotes;
     const bassLower = getLowerOctave(bass);
 
+    const isLastChordOfOutro = isOutro && (chordIdx === chords.length - 1);
+
+    if (isLastChordOfOutro) {
+      // Sustained block chord ending resolution for Outro final beat
+      // Bass note
+      notes.push({
+        note: bassLower,
+        startBeat: baseBeat,
+        durationBeats: 6.0,
+        velocity: 0.9,
+      });
+      // Voicing notes
+      voicing.forEach((n) => {
+        notes.push({
+          note: n,
+          startBeat: baseBeat,
+          durationBeats: 6.0,
+          velocity: 0.8,
+        });
+      });
+      return;
+    }
+
     if (mode === "basic") {
       chordNotes.forEach((n) => {
         notes.push({
@@ -49,50 +96,6 @@ export function generateSectionChordRhythmNotes(
           velocity: 0.75,
         });
       });
-    } else if (mode === "custom-rhythm") {
-      let bassAlt = bassLower;
-      const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-      if (matchAlt) {
-        const name = matchAlt[1];
-        const octave = parseInt(matchAlt[2], 10);
-        bassAlt = `${name}${Math.min(1, octave)}`;
-      }
-
-      const activeCustomSteps = customSteps;
-      const stepBeats = 4 / 16; // 0.25 beats per step
-
-      for (let i = 0; i < 16; i++) {
-        const activeRows: number[] = [];
-        for (let rowIdx = 0; rowIdx < 5; rowIdx++) {
-          if (activeCustomSteps[rowIdx] && activeCustomSteps[rowIdx][i]) {
-            activeRows.push(rowIdx);
-          }
-        }
-
-        if (activeRows.length === 0) continue;
-
-        const currentBass = i % 8 >= 4 ? bassAlt : bassLower;
-        activeRows.forEach((rowIdx) => {
-          if (rowIdx === 0) {
-            notes.push({
-              note: currentBass,
-              startBeat: baseBeat + i * stepBeats,
-              durationBeats: stepBeats * 0.95,
-              velocity: 0.8,
-            });
-          } else {
-            const noteIdx = rowIdx - 1;
-            if (voicing[noteIdx]) {
-              notes.push({
-                note: voicing[noteIdx],
-                startBeat: baseBeat + i * stepBeats,
-                durationBeats: stepBeats * 0.95,
-                velocity: 0.7,
-              });
-            }
-          }
-        });
-      }
     } else if (mode === "arpeggio") {
       // Add bass note at start
       notes.push({
@@ -403,6 +406,189 @@ export function generateSectionChordRhythmNotes(
           notes.push({ note: voicing[0], startBeat: baseBeat + 3.5, durationBeats: 0.3, velocity: 0.7 });
           notes.push({ note: voicing[voicing.length - 1], startBeat: baseBeat + 3.5, durationBeats: 0.3, velocity: 0.7 });
         }
+      } else if (pattern === "reggaeton-dembow") {
+        const stepDuration = 0.45;
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 1.2, velocity: 0.85 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.0, durationBeats: 1.2, velocity: 0.85 });
+
+        const hits = [0.0, 1.5, 2.0, 3.5];
+        hits.forEach((hitOffset) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hitOffset,
+              durationBeats: stepDuration,
+              velocity: 0.75,
+            });
+          });
+        });
+      } else if (pattern === "bolero-romantico") {
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 1.4, velocity: 0.8 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 1.5, durationBeats: 0.4, velocity: 0.7 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.0, durationBeats: 0.8, velocity: 0.75 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 3.0, durationBeats: 0.8, velocity: 0.75 });
+
+        const chordBeats = [0.5, 1.0, 2.0, 3.0];
+        chordBeats.forEach((hb) => {
+          const dur = (hb === 2.0 || hb === 3.0) ? 0.8 : 0.45;
+          const vel = (hb === 2.0 || hb === 3.0) ? 0.7 : 0.65;
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: dur,
+              velocity: vel,
+            });
+          });
+        });
+      } else if (pattern === "jazz-swing") {
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 0.9, velocity: 0.8 });
+        notes.push({ note: shiftNoteSemitones(bassLower, 4), startBeat: baseBeat + 1.0, durationBeats: 0.9, velocity: 0.7 });
+        notes.push({ note: shiftNoteSemitones(bassLower, 7), startBeat: baseBeat + 2.0, durationBeats: 0.9, velocity: 0.75 });
+        notes.push({ note: shiftNoteSemitones(bassLower, 5), startBeat: baseBeat + 3.0, durationBeats: 0.9, velocity: 0.7 });
+
+        const chordBeats = !isEvenMeasure ? [0.0, 1.5] : [1.0, 2.5];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 0.35,
+              velocity: 0.7,
+            });
+          });
+        });
+      } else if (pattern === "boogie-woogie") {
+        const bassIntervals = [0, 4, 7, 9, 10, 9, 7, 4];
+        bassIntervals.forEach((interval, i) => {
+          notes.push({
+            note: shiftNoteSemitones(bassLower, interval),
+            startBeat: baseBeat + i * 0.5,
+            durationBeats: 0.45,
+            velocity: 0.75,
+          });
+        });
+
+        const chordBeats = [0.0, 1.0, 2.0, 3.0];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 0.25,
+              velocity: 0.65,
+            });
+          });
+        });
+      } else if (pattern === "funk-clav") {
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 0.45, velocity: 0.85 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.0, durationBeats: 0.45, velocity: 0.8 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.75, durationBeats: 0.3, velocity: 0.75 });
+
+        const chordBeats = [0.25, 0.75, 1.5, 2.25, 3.0, 3.5];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 0.2,
+              velocity: 0.7,
+            });
+          });
+        });
+      } else if (pattern === "ambient-drone") {
+        chordNotes.forEach((n) => {
+          notes.push({
+            note: n,
+            startBeat: baseBeat,
+            durationBeats: 4.25,
+            velocity: 0.5,
+          });
+        });
+      } else if (pattern === "cumbia-colombiana") {
+        const bassPattern = [
+          { time: 0.0, dur: 0.3, vel: 0.65 },
+          { time: 0.5, dur: 0.8, vel: 0.8 },
+          { time: 1.5, dur: 0.3, vel: 0.65 },
+          { time: 2.0, dur: 0.3, vel: 0.65 },
+          { time: 2.5, dur: 0.8, vel: 0.8 },
+          { time: 3.5, dur: 0.3, vel: 0.65 }
+        ];
+        bassPattern.forEach((bp) => {
+          notes.push({ note: bassLower, startBeat: baseBeat + bp.time, durationBeats: bp.dur, velocity: bp.vel });
+        });
+
+        const chordBeats = [0.5, 1.5, 2.5, 3.5];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 0.4,
+              velocity: 0.75,
+            });
+          });
+        });
+      } else if (pattern === "edm-house") {
+        const chordBeats = [0.0, 1.0, 2.0, 3.0];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 0.45,
+              velocity: 0.8,
+            });
+          });
+        });
+
+        const bassBeats = [0.5, 1.5, 2.5, 3.5];
+        bassBeats.forEach((bb) => {
+          notes.push({
+            note: bassLower,
+            startBeat: baseBeat + bb,
+            durationBeats: 0.4,
+            velocity: 0.85,
+          });
+        });
+      } else if (pattern === "rb-trap-soul") {
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 1.8, velocity: 0.8 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.0, durationBeats: 1.5, velocity: 0.75 });
+
+        const chordBeats = [0.25, 2.25];
+        chordBeats.forEach((hb) => {
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: 1.5,
+              velocity: 0.65,
+            });
+          });
+        });
+
+        const topNote = voicing[voicing.length - 1];
+        notes.push({ note: topNote, startBeat: baseBeat + 3.5, durationBeats: 0.25, velocity: 0.6 });
+        notes.push({ note: shiftNoteSemitones(topNote, 12), startBeat: baseBeat + 3.75, durationBeats: 0.25, velocity: 0.55 });
+      } else if (pattern === "flamenco-rumba") {
+        notes.push({ note: bassLower, startBeat: baseBeat, durationBeats: 0.4, velocity: 0.85 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 1.5, durationBeats: 0.4, velocity: 0.8 });
+        notes.push({ note: bassLower, startBeat: baseBeat + 2.5, durationBeats: 0.4, velocity: 0.8 });
+
+        const strumBeats = [0.5, 0.75, 1.0, 2.0, 2.75, 3.0, 3.5];
+        strumBeats.forEach((hb) => {
+          const isOff = hb === 0.75 || hb === 2.75;
+          const dur = isOff ? 0.2 : 0.35;
+          const vel = isOff ? 0.6 : 0.75;
+          voicing.forEach((n) => {
+            notes.push({
+              note: n,
+              startBeat: baseBeat + hb,
+              durationBeats: dur,
+              velocity: vel,
+            });
+          });
+        });
       } else {
         // basic rhythm/fallback
         chordNotes.forEach((n) => {
@@ -463,17 +649,25 @@ export function syncChordRhythmTrackNotes(
   const updatedSectionNotes: Record<string, Array<{ note: string; startBeat: number; durationBeats: number; velocity: number }>> = {};
 
   song.sections.forEach((sect) => {
-    const secChords = sect.chords?.chords || [];
-    if (secChords.length > 0) {
-      updatedSectionNotes[sect.id] = generateSectionChordRhythmNotes(
-        secChords,
-        pattern,
-        mode,
-        customSteps,
-        selectedArpeggioPattern
-      );
+    // Check if this section notes on the rhythm track were generated by AI
+    const hasAiNotes = rhythmTrack.aiSections?.[sect.id] === true;
+    if (hasAiNotes) {
+      // Keep existing notes for this section
+      updatedSectionNotes[sect.id] = rhythmTrack.sectionNotes?.[sect.id] || [];
     } else {
-      updatedSectionNotes[sect.id] = [];
+      const secChords = sect.chords?.chords || [];
+      if (secChords.length > 0) {
+        updatedSectionNotes[sect.id] = generateSectionChordRhythmNotes(
+          secChords,
+          pattern,
+          mode,
+          customSteps,
+          selectedArpeggioPattern,
+          sect.type.toLowerCase() === "outro"
+        );
+      } else {
+        updatedSectionNotes[sect.id] = [];
+      }
     }
   });
 

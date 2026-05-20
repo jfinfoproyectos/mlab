@@ -130,7 +130,7 @@ export function useSongPlayback(
   const [playbackBpm, setPlaybackBpm] = useState<number>(80);
   const [playbackVolume, setPlaybackVolume] = useState<number>(0.7);
   const [playbackPreset, setPlaybackPreset] = useState<string>("grand-piano");
-  const [playbackMode, setPlaybackMode] = useState<"basic" | "rhythm" | "arpeggio" | "custom-rhythm">("basic");
+  const [playbackMode, setPlaybackMode] = useState<"basic" | "rhythm" | "arpeggio">("basic");
   const [selectedRhythmPattern, setSelectedRhythmPattern] = useState<string>("pop-ballad");
   const [selectedArpeggioPattern, setSelectedArpeggioPattern] = useState<string>("up-down");
   const [loopMode, setLoopMode] = useState<"song" | "section" | "off">("off");
@@ -165,7 +165,7 @@ export function useSongPlayback(
   
   // Settings Refs (avoid stale closure overrides)
   const playbackBpmRef = useRef<number>(80);
-  const playbackModeRef = useRef<"basic" | "rhythm" | "arpeggio" | "custom-rhythm">("basic");
+  const playbackModeRef = useRef<"basic" | "rhythm" | "arpeggio">("basic");
   const selectedRhythmPatternRef = useRef<string>("pop-ballad");
   const selectedArpeggioPatternRef = useRef<string>("up-down");
   const playbackVolumeRef = useRef<number>(0.7);
@@ -177,13 +177,23 @@ export function useSongPlayback(
   const activeOutputPortRef = useRef<any>(null);
   const midiChannelRef = useRef<number>(1);
   const activeSongRef = useRef<SongStructure | null>(null);
+  
+  // Refs for tracking changes in transient controls and preventing reload overwrites
+  const prevModeRef = useRef<string>("");
+  const prevRhythmRef = useRef<string>("");
+  const prevArpeggioRef = useRef<string>("");
+  const prevCustomStepsRef = useRef<string>("");
+  const prevChordsSigRef = useRef<string>("");
+  const justLoadedRef = useRef<boolean>(false);
 
   // Web worker metronome for background playback scheduling
   const playbackWorkerRef = useRef<Worker | null>(null);
+  const playbackTimeQueueRef = useRef<number>(0);
 
   // Sub-timeouts arrays to prevent notes sticking on stop/pause
   const subTimeoutsRef = useRef<any[]>([]);
   const trackTimeoutsRef = useRef<any[]>([]);
+  const gracefulTimeoutRef = useRef<any>(null);
 
   // Sync references with React state
   useEffect(() => { activeSongRef.current = activeSong; }, [activeSong]);
@@ -202,23 +212,28 @@ export function useSongPlayback(
     const prev = activeSongRef.current;
     if (!prev) return;
 
+    const chordsSig = activeSong ? activeSong.sections.map(s => {
+      return s.id + ":" + (s.chords?.chords?.map(c => c.chord + "-" + (c.pianoNotes || []).join(",")).join("|") || "");
+    }).join(";") : "";
+
+    const customStepsStr = JSON.stringify(customRhythmSteps);
+
+    // If song was just loaded, align our control refs and bypass regeneration
+    if (justLoadedRef.current) {
+      prevModeRef.current = playbackMode;
+      prevRhythmRef.current = selectedRhythmPattern;
+      prevArpeggioRef.current = selectedArpeggioPattern;
+      prevCustomStepsRef.current = customStepsStr;
+      prevChordsSigRef.current = chordsSig;
+      justLoadedRef.current = false;
+      return;
+    }
+
     let hasChanges = false;
     const updatedConfig: Partial<SongStructure> = {};
 
     if (prev.tempo !== playbackBpm) {
       updatedConfig.tempo = playbackBpm;
-      hasChanges = true;
-    }
-    if (prev.playbackMode !== playbackMode) {
-      updatedConfig.playbackMode = playbackMode;
-      hasChanges = true;
-    }
-    if (prev.selectedRhythmPattern !== selectedRhythmPattern) {
-      updatedConfig.selectedRhythmPattern = selectedRhythmPattern;
-      hasChanges = true;
-    }
-    if (prev.selectedArpeggioPattern !== selectedArpeggioPattern) {
-      updatedConfig.selectedArpeggioPattern = selectedArpeggioPattern;
       hasChanges = true;
     }
     if (prev.playbackVolume !== playbackVolume) {
@@ -230,49 +245,53 @@ export function useSongPlayback(
       hasChanges = true;
     }
 
-    const isCustomStepsDifferent = () => {
-      if (!prev.customRhythmSteps) return true;
-      if (prev.customRhythmSteps.length !== customRhythmSteps.length) return true;
-      for (let r = 0; r < customRhythmSteps.length; r++) {
-        if (prev.customRhythmSteps[r].length !== customRhythmSteps[r].length) return true;
-        for (let c = 0; c < customRhythmSteps[r].length; c++) {
-          if (prev.customRhythmSteps[r][c] !== customRhythmSteps[r][c]) return true;
-        }
-      }
-      return false;
-    };
+    const modeChanged = prevModeRef.current !== playbackMode;
+    const rhythmChanged = prevRhythmRef.current !== selectedRhythmPattern;
+    const arpeggioChanged = prevArpeggioRef.current !== selectedArpeggioPattern;
+    const customStepsChanged = prevCustomStepsRef.current !== customStepsStr;
+    const chordsChanged = prevChordsSigRef.current !== chordsSig;
 
-    if (isCustomStepsDifferent()) {
-      updatedConfig.customRhythmSteps = customRhythmSteps;
-      hasChanges = true;
-    }
-
-    // Always regenerate progression rhythm notes on change of mode, pattern, custom steps or chords
-    const currentBaseSong = {
+    let hasTracksChanges = false;
+    let currentBaseSong = {
       ...prev,
       ...updatedConfig
     };
 
-    const synced = syncChordRhythmTrackNotes(
-      currentBaseSong,
-      selectedRhythmPattern,
-      playbackMode,
-      customRhythmSteps,
-      selectedArpeggioPattern
-    );
+    if (modeChanged || rhythmChanged || arpeggioChanged || customStepsChanged) {
+      if (currentBaseSong.tracks) {
+        currentBaseSong.tracks = currentBaseSong.tracks.map(t => {
+          if (t.isProgressionRhythm) {
+            return {
+              ...t,
+              aiSections: {}
+            };
+          }
+          return t;
+        });
+      }
+      hasTracksChanges = true;
+    }
 
-    const getRhythmTrackHash = (s: SongStructure) => {
-      const rt = s.tracks?.find(t => t.isProgressionRhythm);
-      if (!rt) return "";
-      return JSON.stringify(rt.sectionNotes || {});
-    };
+    const shouldRegenerate = hasTracksChanges || chordsChanged || !prev.tracks?.some(t => t.isProgressionRhythm);
 
-    const hashPrev = getRhythmTrackHash(prev);
-    const hashSynced = getRhythmTrackHash(synced);
+    if (shouldRegenerate) {
+      const synced = syncChordRhythmTrackNotes(
+        currentBaseSong,
+        selectedRhythmPattern,
+        playbackMode,
+        customRhythmSteps,
+        selectedArpeggioPattern
+      );
 
-    if (hashPrev !== hashSynced || !prev.tracks?.some(t => t.isProgressionRhythm)) {
       updatedConfig.tracks = synced.tracks;
       hasChanges = true;
+
+      // Update refs to match newly generated state
+      prevModeRef.current = playbackMode;
+      prevRhythmRef.current = selectedRhythmPattern;
+      prevArpeggioRef.current = selectedArpeggioPattern;
+      prevCustomStepsRef.current = customStepsStr;
+      prevChordsSigRef.current = chordsSig;
     }
 
     if (hasChanges) {
@@ -305,6 +324,9 @@ export function useSongPlayback(
     return () => {
       if (playbackTimerRef.current) {
         clearTimeout(playbackTimerRef.current);
+      }
+      if (gracefulTimeoutRef.current) {
+        clearTimeout(gracefulTimeoutRef.current);
       }
       if (playbackWorkerRef.current) {
         playbackWorkerRef.current.postMessage({ action: "stop" });
@@ -345,31 +367,26 @@ export function useSongPlayback(
       tracks: song.tracks || []
     };
 
+    // Flag that we are loading a song to prevent the sync useEffect from overwriting stored notes
+    justLoadedRef.current = true;
+
     if (song.tempo) {
       setPlaybackBpm(song.tempo);
       playbackBpmRef.current = song.tempo;
     }
-    if (song.playbackMode) {
-      setPlaybackMode(song.playbackMode as any);
-      playbackModeRef.current = song.playbackMode as any;
-    } else {
-      setPlaybackMode("basic");
-      playbackModeRef.current = "basic";
-    }
-    if (song.selectedRhythmPattern) {
-      setSelectedRhythmPattern(song.selectedRhythmPattern);
-      selectedRhythmPatternRef.current = song.selectedRhythmPattern;
-    } else {
-      setSelectedRhythmPattern("pop-ballad");
-      selectedRhythmPatternRef.current = "pop-ballad";
-    }
-    if (song.selectedArpeggioPattern) {
-      setSelectedArpeggioPattern(song.selectedArpeggioPattern);
-      selectedArpeggioPatternRef.current = song.selectedArpeggioPattern;
-    } else {
-      setSelectedArpeggioPattern("up-down");
-      selectedArpeggioPatternRef.current = "up-down";
-    }
+    
+    // Playback controls are local client tools, reset them to default values upon loading a new song
+    setPlaybackMode("basic");
+    playbackModeRef.current = "basic";
+    setSelectedRhythmPattern("pop-ballad");
+    selectedRhythmPatternRef.current = "pop-ballad";
+    setSelectedArpeggioPattern("up-down");
+    selectedArpeggioPatternRef.current = "up-down";
+
+    const defaultSteps = Array(5).fill(null).map(() => Array(16).fill(false));
+    setCustomRhythmSteps(defaultSteps);
+    customRhythmStepsRef.current = defaultSteps;
+
     if (song.playbackVolume !== undefined) {
       setPlaybackVolume(song.playbackVolume);
       playbackVolumeRef.current = song.playbackVolume;
@@ -377,14 +394,7 @@ export function useSongPlayback(
       setPlaybackVolume(0.7);
       playbackVolumeRef.current = 0.7;
     }
-    if (song.customRhythmSteps) {
-      setCustomRhythmSteps(song.customRhythmSteps);
-      customRhythmStepsRef.current = song.customRhythmSteps;
-    } else {
-      const defaultSteps = Array(5).fill(null).map(() => Array(16).fill(false));
-      setCustomRhythmSteps(defaultSteps);
-      customRhythmStepsRef.current = defaultSteps;
-    }
+
     if (song.loopMode) {
       setLoopMode(song.loopMode as any);
       loopModeRef.current = song.loopMode as any;
@@ -585,69 +595,6 @@ export function useSongPlayback(
       notes.forEach((noteName) => {
         playSingleNoteWithVisuals(noteName, durationMs, 1.0);
       });
-    } else if (mode === "custom-rhythm") {
-      const stepMs = durationMs / 16;
-      const bass = notes[0];
-      const voicing = notes.length > 1 ? notes.slice(1) : notes;
-
-      const getLowerOctave = (noteName: string): string => {
-        const matchNote = noteName.match(/^([A-G][#b]?)([0-9])$/i);
-        if (matchNote) {
-          const name = matchNote[1];
-          const octave = parseInt(matchNote[2], 10);
-          return `${name}${Math.max(1, octave - 1)}`;
-        }
-        return noteName;
-      };
-
-      const bassLower = getLowerOctave(bass);
-      let bassAlt = bassLower;
-      const matchAlt = bass.match(/^([A-G][#b]?)([0-9])$/i);
-      if (matchAlt) {
-        const name = matchAlt[1];
-        const octave = parseInt(matchAlt[2], 10);
-        bassAlt = `${name}${Math.min(1, octave)}`;
-      }
-
-      const getBassNoteForStep = (stepIdx: number): string => {
-        return stepIdx % 8 >= 4 ? bassAlt : bassLower;
-      };
-
-      let activeCustomSteps = customRhythmStepsRef.current;
-      const pattern = selectedRhythmPatternRef.current;
-      
-      if (pattern && pattern.startsWith("custom-")) {
-        const savedId = pattern.replace("custom-", "");
-        const found = savedRhythmsRef.current.find((r: any) => r.id === savedId);
-        if (found && found.steps) {
-          activeCustomSteps = found.steps;
-        }
-      }
-
-      for (let i = 0; i < 16; i++) {
-        const activeRows: number[] = [];
-        for (let rowIdx = 0; rowIdx < 5; rowIdx++) {
-          if (activeCustomSteps[rowIdx] && activeCustomSteps[rowIdx][i]) {
-            activeRows.push(rowIdx);
-          }
-        }
-
-        if (activeRows.length === 0) continue;
-
-        subTimeoutsRef.current.push(setTimeout(() => {
-          const currentBass = getBassNoteForStep(i);
-          activeRows.forEach((rowIdx) => {
-            if (rowIdx === 0) {
-              playSingleNoteWithVisuals(currentBass, stepMs * 0.95, 1.0);
-            } else {
-              const noteIdx = rowIdx - 1;
-              if (voicing[noteIdx]) {
-                playSingleNoteWithVisuals(voicing[noteIdx], stepMs * 0.95, 0.85);
-              }
-            }
-          });
-        }, i * stepMs));
-      }
     } else if (mode === "rhythm") {
       const beatMs = durationMs / 4;
       const bass = notes[0];
@@ -1657,7 +1604,12 @@ export function useSongPlayback(
     return list;
   }, []);
 
-  const stopPlayback = useCallback(() => {
+  const stopPlayback = useCallback((graceful: boolean = false) => {
+    if (gracefulTimeoutRef.current) {
+      clearTimeout(gracefulTimeoutRef.current);
+      gracefulTimeoutRef.current = null;
+    }
+
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (playbackTimerRef.current) {
@@ -1668,6 +1620,38 @@ export function useSongPlayback(
       playbackWorkerRef.current.postMessage({ action: "stop" });
       playbackWorkerRef.current.terminate();
       playbackWorkerRef.current = null;
+    }
+
+    if (graceful) {
+      // Graceful stop: stop sequencer timer immediately but let Note Off events decay naturally.
+      // Schedule a hard silent cleanup in 2500ms.
+      gracefulTimeoutRef.current = setTimeout(() => {
+        setPlaybackChordIndex(-1);
+        setPlaybackSectionId(null);
+        setActivePlaybackNotes([]);
+        activePlaybackNotesRef.current = [];
+
+        subTimeoutsRef.current.forEach(clearTimeout);
+        subTimeoutsRef.current = [];
+        trackTimeoutsRef.current.forEach(clearTimeout);
+        trackTimeoutsRef.current = [];
+
+        if (activeOutputPortRef.current) {
+          try {
+            const out = activeOutputPortRef.current;
+            for (let ch = 0; ch < 16; ch++) {
+              out.send([0xB0 | ch, 123, 0]);
+              out.send([0xB0 | ch, 120, 0]);
+            }
+          } catch (e) {
+            console.warn("Error in deferred MIDI reset:", e);
+          }
+          activeMidiNotesRef.current = [];
+          previouslyPlayedMidiNotesRef.current = [];
+        }
+        gracefulTimeoutRef.current = null;
+      }, 2500);
+      return;
     }
     
     subTimeoutsRef.current.forEach(clearTimeout);
@@ -1710,6 +1694,19 @@ export function useSongPlayback(
 
   const startPlayback = useCallback((targetSectionId: string | null = null) => {
     if (!activeSongRef.current) return;
+
+    if (gracefulTimeoutRef.current) {
+      clearTimeout(gracefulTimeoutRef.current);
+      gracefulTimeoutRef.current = null;
+      if (activeOutputPortRef.current) {
+        try {
+          const out = activeOutputPortRef.current;
+          for (let ch = 0; ch < 16; ch++) {
+            out.send([0xB0 | ch, 123, 0]);
+          }
+        } catch (e) {}
+      }
+    }
     
     const playableChords = getPlayableChords(activeSongRef.current);
     if (playableChords.length === 0) {
@@ -1766,6 +1763,9 @@ export function useSongPlayback(
       }
     }
 
+    // Initialize the queue time with a 50ms buffer for precise scheduling
+    playbackTimeQueueRef.current = performance.now() + 50;
+
     const runPlaybackStep = (currentIdx: number) => {
       if (!isPlayingRef.current) return;
 
@@ -1773,28 +1773,30 @@ export function useSongPlayback(
       if (!chord) {
         const currentLoop = loopModeRef.current;
         if (currentLoop === "song") {
+          playbackTimeQueueRef.current = performance.now() + 50;
           runPlaybackStep(0);
         } else {
-          stopPlayback();
+          stopPlayback(true);
           toast.info("Fin de la reproducción de la canción.");
         }
         return;
       }
 
-      setPlaybackSectionId(chord.sectionId);
-      setPlaybackChordIndex(chord.chordIndexInSection);
-      
       const currentBpm = playbackBpmRef.current;
       const beatDurationSec = 60 / currentBpm;
       const chordDurationMs = beatDurationSec * 4 * 1000;
-      const startTimeMs = performance.now();
+      const startTimeMs = playbackTimeQueueRef.current;
+
+      // Schedule React UI state updates to align exactly with note playback time
+      const uiUpdateDelay = Math.max(0, startTimeMs - performance.now());
+      const uiTimeout = setTimeout(() => {
+        if (!isPlayingRef.current) return;
+        setPlaybackSectionId(chord.sectionId);
+        setPlaybackChordIndex(chord.chordIndexInSection);
+      }, uiUpdateDelay);
+      subTimeoutsRef.current.push(uiTimeout);
       
       const anySoloed = activeSongRef.current?.tracks?.some(t => t.soloed === true) || false;
-      
-      // Raw chords do not play directly; they are played by the "Ritmo de Progresión" track
-      // if (!anySoloed) {
-      //   playChordNotes(chord.notes, chordDurationMs, chord.globalIndex, startTimeMs);
-      // }
 
       if (activeSongRef.current) {
         const currentChordStart = chord.chordIndexInSection * 4;
@@ -1882,15 +1884,24 @@ export function useSongPlayback(
         }
       }
 
+      // Advance the time queue by the duration of the current chord step
+      playbackTimeQueueRef.current += chordDurationMs;
+
+      // Lookahead of 150ms ensures that even if main thread gets blocked briefly,
+      // the worker wakes up early enough to queue the next notes in the Web MIDI hardware buffer.
+      const lookaheadMs = 150;
+      const nextWakeupTime = playbackTimeQueueRef.current - lookaheadMs;
+      const delay = nextWakeupTime - performance.now();
+
       if (playbackWorkerRef.current) {
         playbackWorkerRef.current.onmessage = () => {
           runPlaybackStep(targetNextIdx);
         };
-        playbackWorkerRef.current.postMessage({ action: "start", delay: chordDurationMs });
+        playbackWorkerRef.current.postMessage({ action: "start", delay: Math.max(0, delay) });
       } else {
         playbackTimerRef.current = setTimeout(() => {
           runPlaybackStep(targetNextIdx);
-        }, chordDurationMs);
+        }, Math.max(0, delay));
       }
     };
 

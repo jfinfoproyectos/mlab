@@ -13,6 +13,7 @@ interface SectionChordEditorProps {
   getRoleColor: (role: string) => string;
   tracks?: SongTrack[];
   onRegenerateTrackSectionClick?: (trackId: string, sectionId: string) => void;
+  onResetSectionSyncClick?: (trackId: string, sectionId: string) => void;
 }
 
 // Convert pitch name to MIDI number
@@ -48,7 +49,8 @@ export function SectionChordEditor({
   generatingSectionIds,
   getRoleColor,
   tracks = [],
-  onRegenerateTrackSectionClick
+  onRegenerateTrackSectionClick,
+  onResetSectionSyncClick
 }: SectionChordEditorProps) {
   const isGenerating = generatingSectionIds[selectedSection.id];
 
@@ -289,9 +291,41 @@ export function SectionChordEditor({
 
                           <div className="flex items-center gap-2">
                             {track.isProgressionRhythm ? (
-                              <span className="text-[10px] text-purple-400 font-bold bg-purple-500/5 border border-purple-500/10 px-2.5 py-1 rounded-xl">
-                                ⚡ Sincronizado automáticamente
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {track.aiSections?.[selectedSection.id] ? (
+                                  <>
+                                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/5 border border-emerald-500/10 px-2.5 py-1 rounded-xl">
+                                      ✨ Personalizado con IA
+                                    </span>
+                                    {onResetSectionSyncClick && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => onResetSectionSyncClick(track.id, selectedSection.id)}
+                                        className="rounded-xl text-[10px] h-8 px-2 font-bold text-muted-foreground hover:text-primary transition-all"
+                                        title="Volver a sincronizar automáticamente con el patrón de ritmo global"
+                                      >
+                                        Re-sincronizar
+                                      </Button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-purple-400 font-bold bg-purple-500/5 border border-purple-500/10 px-2.5 py-1 rounded-xl">
+                                    ⚡ Sincronizado automáticamente
+                                  </span>
+                                )}
+                                {onRegenerateTrackSectionClick && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => onRegenerateTrackSectionClick(track.id, selectedSection.id)}
+                                    className="rounded-xl text-xs h-8 font-bold border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all flex items-center gap-1.5"
+                                  >
+                                    <Sparkles className="w-3 h-3 text-primary animate-pulse" />
+                                    {track.aiSections?.[selectedSection.id] ? "Regenerar IA" : "Componer con IA"}
+                                  </Button>
+                                )}
+                              </div>
                             ) : (
                               onRegenerateTrackSectionClick && (
                                 <Button

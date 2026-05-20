@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Music, Edit2, MousePointer2, ZoomIn, ZoomOut, Grid, MoveHorizontal, MoveVertical } from "lucide-react";
+import { Music, Edit2, MousePointer2, ZoomIn, ZoomOut, Grid, MoveHorizontal, MoveVertical, Sliders } from "lucide-react";
 import { SongStructure } from "../schemas/song-generator.schema";
 import { noteToMidi } from "../hooks/use-song-playback";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,7 +19,7 @@ interface PianoRollProps {
   setPlaybackSectionId?: (id: string) => void;
   setPlaybackChordIndex?: (index: number) => void;
   visibleTrackIds?: Set<string>;
-  onUpdateNote?: (trackId: string, sectionId: string, noteIndex: number, updatedNote: { pitch: string; durationBeats: number; startBeat: number }) => void;
+  onUpdateNote?: (trackId: string, sectionId: string, noteIndex: number, updatedNote: { pitch: string; durationBeats: number; startBeat: number; velocity?: number }) => void;
 }
 
 // Convert MIDI pitch number to Pitch Name (e.g. 60 -> C4)
@@ -36,7 +36,7 @@ const isBlackKey = (midi: number): boolean => {
   return [1, 3, 6, 8, 10].includes(noteIndex);
 };
 
-export function PianoRoll({
+function PianoRollComponent({
   activeSong,
   isPlaying,
   playbackSectionId,
@@ -53,6 +53,18 @@ export function PianoRoll({
 }: PianoRollProps) {
   const [currentBeat, setCurrentBeat] = useState<number>(0);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedNoteRef, setSelectedNoteRef] = useState<{
+    trackId: string;
+    sectionId: string;
+    noteIndex: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isEditMode) {
+      setSelectedNoteRef(null);
+    }
+  }, [isEditMode]);
+
   const [dragState, setDragState] = useState<{
     noteId: string;
     trackId: string;
@@ -84,6 +96,11 @@ export function PianoRoll({
   const playbackStartRef = useRef<{ time: number, beat: number } | null>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const lastRenderTimeRef = useRef<number>(0);
+  const lastActiveNoteIdsRef = useRef<Set<string>>(new Set());
+  const lastActiveMidiNumbersRef = useRef<Set<number>>(new Set());
+  const scrollLeftRef = useRef<number>(0);
+  const noteElementsMapRef = useRef<Record<string, HTMLElement>>({});
+  const keyElementsMapRef = useRef<Record<number, HTMLElement>>({});
 
   // Layout constants — must be declared before any useMemo that references them
   const headerHeight = 24;
@@ -185,6 +202,7 @@ export function PianoRoll({
       sectionId: string;
       noteIndex: number;
       sectionStartBeat: number;
+      velocity: number;
     }> = [];
 
     const anySoloed = activeSong.tracks?.some(t => t.soloed) || false;
@@ -215,7 +233,8 @@ export function PianoRoll({
             trackId: track.id,
             sectionId: secId,
             noteIndex: nIdx,
-            sectionStartBeat: range.startBeat
+            sectionStartBeat: range.startBeat,
+            velocity: n.velocity !== undefined ? n.velocity : 0.7
           });
         });
       });
@@ -223,6 +242,15 @@ export function PianoRoll({
 
     return formatted;
   }, [activeSong.tracks, sectionRanges, visibleTrackIds]);
+
+  const selectedNote = useMemo(() => {
+    if (!selectedNoteRef) return null;
+    return trackNotes.find(n => 
+      n.trackId === selectedNoteRef.trackId && 
+      n.sectionId === selectedNoteRef.sectionId && 
+      n.noteIndex === selectedNoteRef.noteIndex
+    ) || null;
+  }, [selectedNoteRef, trackNotes]);
 
   // 4. Scan note ranges to determine the optimal MIDI range to display
   const midiRange = useMemo(() => {
@@ -381,6 +409,56 @@ export function PianoRoll({
     };
   }, [isEditMode, dragState, onUpdateNote, pxPerBeat, keyHeight]);
 
+  // Keep refs of trackNotes and isEditMode to avoid recreating useEffect
+  const trackNotesRef = useRef(trackNotes);
+  useEffect(() => {
+    trackNotesRef.current = trackNotes;
+  }, [trackNotes]);
+
+  const isEditModeRef = useRef(isEditMode);
+  useEffect(() => {
+    isEditModeRef.current = isEditMode;
+  }, [isEditMode]);
+
+  // Populate the note element DOM mapping for fast access
+  useEffect(() => {
+    noteElementsMapRef.current = {};
+    if (gridScrollContainerRef.current) {
+      const els = gridScrollContainerRef.current.querySelectorAll("[data-note-id]");
+      els.forEach((el) => {
+        const id = el.getAttribute("data-note-id");
+        if (id) {
+          noteElementsMapRef.current[id] = el as HTMLElement;
+        }
+      });
+    }
+    lastActiveNoteIdsRef.current = new Set();
+  }, [trackNotes]);
+
+  // Populate the keyboard keys DOM mapping for fast access
+  useEffect(() => {
+    keyElementsMapRef.current = {};
+    if (gridScrollContainerRef.current) {
+      const els = gridScrollContainerRef.current.querySelectorAll("[data-midi-num]");
+      els.forEach((el) => {
+        const midi = parseInt(el.getAttribute("data-midi-num") || "", 10);
+        if (!isNaN(midi)) {
+          keyElementsMapRef.current[midi] = el as HTMLElement;
+        }
+      });
+    }
+    lastActiveMidiNumbersRef.current = new Set();
+  }, [midiRange.keys]);
+
+  useEffect(() => {
+    lastActiveNoteIdsRef.current = new Set();
+    lastActiveMidiNumbersRef.current = new Set();
+  }, [isPlaying]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    scrollLeftRef.current = e.currentTarget.scrollLeft;
+  };
+
   // 5. Smooth Playhead Interpolator using requestAnimationFrame (60 FPS)
   useEffect(() => {
     if (!isPlaying) {
@@ -404,7 +482,9 @@ export function PianoRoll({
           const playheadPx = 64 + targetBeat * pxPerBeat;
           const width = container.clientWidth - 64;
           if (lastBeatRef.current !== -1 && Math.abs(targetBeat - lastBeatRef.current) > 1.5) {
-             container.scrollLeft = Math.max(0, playheadPx - 64 - width * 0.2);
+            const targetScroll = Math.max(0, playheadPx - 64 - width * 0.2);
+            container.scrollLeft = targetScroll;
+            scrollLeftRef.current = targetScroll;
           }
           lastBeatRef.current = targetBeat;
         }
@@ -453,25 +533,116 @@ export function PianoRoll({
         playheadRef.current.style.left = `${nextBeat * pxPerBeat}px`;
       }
 
-      // Throttle React state updates (e.g. 15fps) to prevent heavy DOM diffing / Audio stutter
+      // Throttle visual highlights update (e.g. 15fps / 66ms) to prevent React diffing overhead and audio stutter
       if (now - lastRenderTimeRef.current > 66) {
-        setCurrentBeat(nextBeat);
         lastRenderTimeRef.current = now;
+
+        // 1. Calculate active midi numbers and note IDs
+        const activeMidis = new Set<number>();
+        const activeNoteIds = new Set<string>();
+        trackNotesRef.current.forEach((n) => {
+          if (n.startBeat <= nextBeat && nextBeat < (n.startBeat + n.durationBeats)) {
+            activeMidis.add(n.midiNum);
+            activeNoteIds.add(n.id);
+          }
+        });
+
+        // 2. Direct DOM update for keyboard keys that changed state (O(1) lookup)
+        const keyMap = keyElementsMapRef.current;
+        
+        // Keys to turn ON (became active)
+        activeMidis.forEach((midiNum) => {
+          if (!lastActiveMidiNumbersRef.current.has(midiNum)) {
+            const el = keyMap[midiNum];
+            if (el) {
+              const isBlack = isBlackKey(midiNum);
+              const label = el.querySelector(".key-label");
+              const ping = el.querySelector(".key-ping-dot");
+
+              if (isBlack) {
+                el.className = "w-full flex items-center justify-between px-2 text-[8px] font-bold border-b border-zinc-100 dark:border-zinc-900/60 transition-all bg-purple-500 text-purple-50 shadow-[inset_0_0_12px_rgba(168,85,247,0.8)] border-purple-400 piano-key-active";
+              } else {
+                el.className = "w-full flex items-center justify-between px-2 text-[8px] font-bold border-b border-zinc-100 dark:border-zinc-900/60 transition-all bg-emerald-500 text-emerald-50 shadow-[inset_0_0_12px_rgba(16,185,129,0.8)] border-emerald-400 piano-key-active";
+              }
+              if (ping) (ping as HTMLElement).style.display = "block";
+              if (label) label.className = "key-label opacity-100 font-black";
+            }
+          }
+        });
+
+        // Keys to turn OFF (became inactive)
+        lastActiveMidiNumbersRef.current.forEach((midiNum) => {
+          if (!activeMidis.has(midiNum)) {
+            const el = keyMap[midiNum];
+            if (el) {
+              const isBlack = isBlackKey(midiNum);
+              const label = el.querySelector(".key-label");
+              const ping = el.querySelector(".key-ping-dot");
+
+              if (isBlack) {
+                el.className = "w-full flex items-center justify-between px-2 text-[8px] font-bold border-b border-zinc-100 dark:border-zinc-900/60 transition-all bg-zinc-100 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-900";
+              } else {
+                el.className = "w-full flex items-center justify-between px-2 text-[8px] font-bold border-b border-zinc-100 dark:border-zinc-900/60 transition-all bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-850";
+              }
+              if (ping) (ping as HTMLElement).style.display = "none";
+              if (label) {
+                const noteName = el.getAttribute("data-note-name") || "";
+                const isC = noteName.startsWith("C");
+                label.className = `key-label ${isC ? "opacity-100 font-black" : "opacity-45 font-medium"}`;
+              }
+            }
+          }
+        });
+
+        lastActiveMidiNumbersRef.current = activeMidis;
+
+        // 3. Direct DOM update for note blocks that changed state (O(1) lookup)
+        const noteMap = noteElementsMapRef.current;
+
+        // Notes to turn ON (became active)
+        activeNoteIds.forEach((id) => {
+          if (!lastActiveNoteIdsRef.current.has(id)) {
+            const el = noteMap[id];
+            if (el) {
+              const originalColorClasses = el.getAttribute("data-note-color") || "";
+              el.className = `rounded-md border text-[8px] font-black px-1.5 flex items-center justify-center select-none overflow-hidden transition-all bg-gradient-to-r z-[25] scale-y-[1.15] scale-x-[1.02] brightness-150 ring-2 ring-white/80 shadow-[0_0_25px_rgba(255,255,255,0.6)] border-white ${originalColorClasses}`;
+              el.style.cursor = "pointer";
+            }
+          }
+        });
+
+        // Notes to turn OFF (became inactive)
+        lastActiveNoteIdsRef.current.forEach((id) => {
+          if (!activeNoteIds.has(id)) {
+            const el = noteMap[id];
+            if (el) {
+              const originalColorClasses = el.getAttribute("data-note-color") || "";
+              el.className = `rounded-md border text-[8px] font-black px-1.5 flex items-center justify-center select-none overflow-hidden transition-all bg-gradient-to-r z-[15] opacity-85 hover:opacity-100 hover:scale-y-[1.02] ${isEditModeRef.current ? "hover:ring-2 hover:ring-purple-400/50" : ""} ${originalColorClasses}`;
+              el.style.cursor = isEditModeRef.current ? "move" : "default";
+            }
+          }
+        });
+
+        lastActiveNoteIdsRef.current = activeNoteIds;
       }
 
       if (gridScrollContainerRef.current) {
         const container = gridScrollContainerRef.current;
         const playheadPx = 64 + nextBeat * pxPerBeat;
         const width = container.clientWidth - 64;
-        const visibleLeft = container.scrollLeft + 64;
+        const visibleLeft = scrollLeftRef.current + 64; // Caching scrollLeft to avoid style layout recalculation thrashing
         
         const isSeek = lastBeatRef.current !== -1 && Math.abs(nextBeat - lastBeatRef.current) > 1.5;
         lastBeatRef.current = nextBeat;
 
         if (isSeek) {
-          container.scrollLeft = Math.max(0, playheadPx - 64 - width * 0.2);
+          const targetScroll = Math.max(0, playheadPx - 64 - width * 0.2);
+          container.scrollLeft = targetScroll;
+          scrollLeftRef.current = targetScroll;
         } else if (playheadPx > visibleLeft + width * 0.85) {
-          container.scrollLeft = playheadPx - 64 - width * 0.15;
+          const targetScroll = playheadPx - 64 - width * 0.15;
+          container.scrollLeft = targetScroll;
+          scrollLeftRef.current = targetScroll;
         }
       }
 
@@ -482,7 +653,7 @@ export function PianoRoll({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isPlaying, playbackSectionId, playbackChordIndex, playbackBpm, activeSong.sections]);
+  }, [isPlaying, playbackSectionId, playbackChordIndex, playbackBpm, activeSong.sections, pxPerBeat, keyHeight]);
 
   // 6. Center vertical scroll viewport on the active notes on mount or filter change
   useEffect(() => {
@@ -521,6 +692,7 @@ export function PianoRoll({
       {/* Main Piano Roll Container */}
       <div 
         ref={gridScrollContainerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-auto relative bg-zinc-50 dark:bg-[#09090b] select-none scrollbar-thin scrollbar-thumb-zinc-400 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent rounded-xl border border-border/40 shadow-sm"
       >
         {/* Continuous Grid canvas wrapper */}
@@ -553,23 +725,26 @@ export function PianoRoll({
               return (
                 <div
                   key={midiNum}
+                  data-midi-num={midiNum}
+                  data-note-name={noteName}
                   style={{ height: `${keyHeight}px` }}
                   className={`w-full flex items-center justify-between px-2 text-[8px] font-bold border-b border-zinc-100 dark:border-zinc-900/60 transition-all ${
                     isBlack
                       ? isActive
-                        ? "bg-purple-500 text-purple-50 shadow-[inset_0_0_12px_rgba(168,85,247,0.8)] border-purple-400"
+                        ? "bg-purple-500 text-purple-50 shadow-[inset_0_0_12px_rgba(168,85,247,0.8)] border-purple-400 piano-key-active"
                         : "bg-zinc-100 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-900"
                       : isActive
-                        ? "bg-emerald-500 text-emerald-50 shadow-[inset_0_0_12px_rgba(16,185,129,0.8)] border-emerald-400"
+                        ? "bg-emerald-500 text-emerald-50 shadow-[inset_0_0_12px_rgba(16,185,129,0.8)] border-emerald-400 piano-key-active"
                         : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-850"
                   }`}
                 >
-                  <span className={isC || isActive ? "opacity-100 font-black" : "opacity-45 font-medium"}>
+                  <span className={`key-label ${isC || isActive ? "opacity-100 font-black" : "opacity-45 font-medium"}`}>
                     {noteName}
                   </span>
-                  {isActive && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-ping" />
-                  )}
+                  <span 
+                    className="key-ping-dot w-1.5 h-1.5 rounded-full bg-foreground animate-ping" 
+                    style={{ display: isActive ? "block" : "none" }}
+                  />
                 </div>
               );
             })}
@@ -581,6 +756,11 @@ export function PianoRoll({
             style={{ 
               width: `${totalBeats * pxPerBeat}px`, 
               height: `${totalHeight + headerHeight}px` 
+            }}
+            onPointerDown={() => {
+              if (isEditMode) {
+                setSelectedNoteRef(null);
+              }
             }}
           >
             {/* STICKY MEASURE RULER (Row 1) */}
@@ -677,11 +857,16 @@ export function PianoRoll({
                 const renderTop = isDraggingThis ? (midiRange.maxMidi - dragState.currentMidiNum) * keyHeight : noteTop;
                 const renderLeft = isDraggingThis ? dragState.currentStartBeat * pxPerBeat : noteLeft;
                 const renderWidth = isDraggingThis ? dragState.currentDurationBeats * pxPerBeat : noteWidth;
+                const isSelected = selectedNoteRef?.trackId === note.trackId && 
+                                   selectedNoteRef?.sectionId === note.sectionId && 
+                                   selectedNoteRef?.noteIndex === note.noteIndex;
 
                 return (
                   <Tooltip key={note.id} delayDuration={150}>
                     <TooltipTrigger asChild>
                       <div
+                        data-note-id={note.id}
+                        data-note-color={note.color}
                         onPointerDown={(e) => {
                           if (!isEditMode) return;
                           e.stopPropagation();
@@ -689,6 +874,12 @@ export function PianoRoll({
                           const rect = e.currentTarget.getBoundingClientRect();
                           const isRightEdge = (e.clientX - rect.left) > (rect.width - 15);
                           
+                          setSelectedNoteRef({
+                            trackId: note.trackId,
+                            sectionId: note.sectionId,
+                            noteIndex: note.noteIndex
+                          });
+
                           setDragState({
                             noteId: note.id,
                             trackId: note.trackId,
@@ -712,16 +903,19 @@ export function PianoRoll({
                           left: `${renderLeft}px`,
                           width: `${renderWidth - 2}px`,
                           height: `${keyHeight - 2}px`,
-                          cursor: isEditMode ? (isDraggingThis && dragState.type === "resize" ? "ew-resize" : "move") : (isActive ? "pointer" : "default")
+                          cursor: isEditMode ? (isDraggingThis && dragState.type === "resize" ? "ew-resize" : "move") : (isActive ? "pointer" : "default"),
+                          opacity: isDraggingThis ? 1.0 : (0.35 + (note.velocity ?? 0.7) * 0.65)
                         }}
                         className={`rounded-md border text-[8px] font-black px-1.5 flex items-center justify-center select-none overflow-hidden transition-all bg-gradient-to-r ${
                           isActive || isDraggingThis
                             ? "z-[25] scale-y-[1.15] scale-x-[1.02] brightness-150 ring-2 ring-white/80 shadow-[0_0_25px_rgba(255,255,255,0.6)] border-white" 
-                            : "z-[15] opacity-85 hover:opacity-100 hover:scale-y-[1.02]"
+                            : isSelected
+                              ? "z-[20] scale-y-[1.05] scale-x-[1.01] brightness-125 ring-2 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] border-purple-400"
+                              : "z-[15] hover:opacity-100 hover:scale-y-[1.02]"
                         } ${isEditMode ? "hover:ring-2 hover:ring-purple-400/50" : ""} ${note.color}`}
                       >
                         <span className="font-mono flex-shrink-0 text-[8px] drop-shadow-md truncate opacity-90 pointer-events-none">
-                          {note.pitch}
+                          {note.pitch} <span className="opacity-60 text-[7px] font-sans">({Math.round((note.velocity ?? 0.7) * 100)})</span>
                         </span>
                       </div>
                     </TooltipTrigger>
@@ -729,6 +923,7 @@ export function PianoRoll({
                       <div className="font-black text-sm">{note.trackName}</div>
                       <div className="opacity-80">Nota: <span className="font-mono font-bold opacity-100">{note.pitch}</span> <span className="text-[10px] opacity-60">(MIDI: {note.midiNum})</span></div>
                       <div className="opacity-80">Beat: <span className="font-bold opacity-100">{note.startBeat}</span> | Duración: <span className="font-bold opacity-100">{note.durationBeats}</span></div>
+                      <div className="opacity-80">Dinámica: <span className="font-bold opacity-100">{Math.round((note.velocity ?? 0.7) * 127)} ({Math.round((note.velocity ?? 0.7) * 100)}%)</span></div>
                     </TooltipContent>
                   </Tooltip>
                 );
@@ -752,7 +947,7 @@ export function PianoRoll({
 
       {/* Interactive Bottom Toolbar */}
       <div className="p-2 border-t border-border/60 bg-zinc-100 dark:bg-zinc-950 flex flex-wrap gap-4 items-center justify-between shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-30">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {/* Edit Toggle */}
           <button
             onClick={() => setIsEditMode(!isEditMode)}
@@ -784,6 +979,57 @@ export function PianoRoll({
               <option value={0}>Libre (Sin ajuste)</option>
             </select>
           </div>
+
+          {/* Velocity Control */}
+          {selectedNote && (
+            <>
+              <div className="h-5 w-[1px] bg-border/80 mx-1" />
+              <div className="flex items-center gap-3 bg-purple-500/10 dark:bg-purple-500/5 border border-purple-500/30 rounded-lg px-3 py-1 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <Sliders className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <div className="flex flex-col">
+                  <span className="text-[8px] font-black tracking-wider text-purple-600 dark:text-purple-400 uppercase">Dinámica ({selectedNote.pitch})</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.0"
+                      step="0.01"
+                      value={selectedNote.velocity}
+                      onChange={(e) => {
+                        const vel = parseFloat(e.target.value);
+                        onUpdateNote?.(
+                          selectedNote.trackId,
+                          selectedNote.sectionId,
+                          selectedNote.noteIndex,
+                          {
+                            pitch: selectedNote.pitch,
+                            startBeat: selectedNote.startBeat - selectedNote.sectionStartBeat,
+                            durationBeats: selectedNote.durationBeats,
+                            velocity: vel
+                          }
+                        );
+                      }}
+                      className="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-600 dark:accent-purple-500"
+                    />
+                    <span className="text-[10px] font-mono font-bold text-foreground w-16">
+                      MIDI: {Math.round(selectedNote.velocity * 127)}
+                    </span>
+                    <span className="text-[9px] font-bold text-muted-foreground italic w-24">
+                      {(() => {
+                        const v = selectedNote.velocity;
+                        if (v <= 0.15) return "pp (pianissimo)";
+                        if (v <= 0.35) return "p (piano)";
+                        if (v <= 0.5) return "mp (mezzo-piano)";
+                        if (v <= 0.7) return "mf (mezzo-forte)";
+                        if (v <= 0.85) return "f (forte)";
+                        return "ff (fortissimo)";
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Zoom Controls */}
@@ -811,4 +1057,43 @@ export function PianoRoll({
       </div>
     </div>
   );
+}
+
+const PianoRollMemoized = React.memo(
+  PianoRollComponent,
+  (prevProps, nextProps) => {
+    // If playing state is changing, we must re-render
+    if (prevProps.isPlaying !== nextProps.isPlaying) return false;
+
+    // Check if other props changed (e.g. activeSong, volume, bpm, visible tracks)
+    if (
+      prevProps.activeSong !== nextProps.activeSong ||
+      prevProps.playbackVolume !== nextProps.playbackVolume ||
+      prevProps.playbackBpm !== nextProps.playbackBpm ||
+      prevProps.visibleTrackIds !== nextProps.visibleTrackIds
+    ) {
+      return false;
+    }
+
+    if (nextProps.isPlaying) {
+      // If it is a normal forward step, do NOT re-render (handled by requestAnimationFrame loop directly)
+      const isNormalForwardStep =
+        prevProps.playbackSectionId === nextProps.playbackSectionId &&
+        nextProps.playbackChordIndex - prevProps.playbackChordIndex === 1;
+
+      if (isNormalForwardStep) {
+        return true;
+      }
+    }
+
+    // In all other cases (seeks, pauses, loops), let React re-render normally
+    return (
+      prevProps.playbackChordIndex === nextProps.playbackChordIndex &&
+      prevProps.playbackSectionId === nextProps.playbackSectionId
+    );
+  }
+);
+
+export function PianoRoll(props: PianoRollProps) {
+  return <PianoRollMemoized {...props} />;
 }

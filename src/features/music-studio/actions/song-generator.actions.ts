@@ -702,6 +702,15 @@ export async function generateSectionTrackAction(params: {
     pianoNotes: string[];
     role: string;
   }>;
+  progressionRhythmNotes?: Array<{
+    note: string;
+    startBeat: number;
+    durationBeats: number;
+    velocity: number;
+  }>;
+  useOrnamentalNotes?: boolean;
+  ornamentalTypes?: string[];
+  midiReferencePattern?: string;
 }): Promise<{ success: boolean; data?: SongSectionTrack; error?: string }> {
   const { 
     songTitle, 
@@ -716,7 +725,11 @@ export async function generateSectionTrackAction(params: {
     previousChordsList,
     previousSectionNotes,
     nextSectionType,
-    nextChordsList
+    nextChordsList,
+    progressionRhythmNotes,
+    useOrnamentalNotes = false,
+    ornamentalTypes = [],
+    midiReferencePattern
   } = params;
 
   const totalBeats = chordsList.length * 4; // Each chord in our DAW is exactly 4 beats long
@@ -813,7 +826,83 @@ export async function generateSectionTrackAction(params: {
       return `- Acorde ${idx + 1} (${c.chord}): Genera OBLIGATORIAMENTE entre 2 y 5 notas con 'startBeat' entre los tiempos ${start.toFixed(1)} y ${(end - 0.1).toFixed(1)} (que es el intervalo en el que suena este acorde).`;
     }).join("\n");
 
-    const systemPrompt = `Eres un arreglista e instrumentista de sesión de clase mundial galardonado.
+    let ornamentalTheoryBlock = "";
+    if (useOrnamentalNotes && ornamentalTypes.length > 0) {
+      const scaleNotes: Record<string, string[]> = {
+        major: ["1(tónica)", "2(mayor)", "3(mayor)", "4(subdominante)", "5(quinta)", "6(mayor)", "7(sensible)"],
+        minor: ["1(tónica)", "2(mayor)", "b3(menor)", "4(subdominante)", "5(quinta)", "b6(menor)", "b7(subtónica)"],
+        dorian: ["1", "2", "b3", "4", "5", "6", "b7"],
+        mixolydian: ["1", "2", "3", "4", "5", "6", "b7"],
+        lydian: ["1", "2", "3", "#4", "5", "6", "7"],
+        phrygian: ["1", "b2", "b3", "4", "5", "b6", "b7"],
+        locrian: ["1", "b2", "b3", "4", "b5", "b6", "b7"]
+      };
+      const scaleGrades = scaleNotes[sectionScale] ?? scaleNotes["major"];
+
+      const techniqueDescriptions: Record<string, string> = {
+        "passing-tones": `NOTAS DE PASO (Passing Tones): En los tiempos débiles y contratiempos (ej. 0.5, 1.5, 2.5, 3.5), intercala notas escalísticas diatónicas que conecten suavemente las notas del acorde activo. Por ejemplo, entre la tónica (${sectionKey}) y la tercera del acorde, pasa por la segunda de la escala. Estas notas de paso crean movimiento melódico fluido y evitan saltos bruscos.`,
+        "neighbor-tones": `NOTAS DE ADORNO (Neighbor Tones / Ornamentos): Añade mordentes superiores e inferiores: un semitono o tono por encima o debajo de una nota del acorde, regresando inmediatamente a la nota principal. Úsalos en los tiempos 0.75, 1.75, 2.75, 3.75 con duraciones cortas (0.25). Estos ornamentos dan expresividad y virtuosismo.`,
+        "chromatic-approach": `APROXIMACIONES CROMÁTICAS (Chromatic Approach Notes): Antes de cada tiempo fuerte de cambio de acorde (tiempos 0.0, 4.0, 8.0, 12.0...), incluye una nota a un semitono de distancia de la nota objetivo. Estas notas de aproximación cromáticas crean una fuerte atracción melódica y son fundamentales en jazz, bebop y music latina avanzada.`,
+        "9th-11th-13th": `EXTENSIONES ARMÓNICAS (9ª, 11ª y 13ª): Usa libremente tensiones armónicas que van más allá del acorde de 4 sonidos. Para un acorde mayor (ej. C Mayor): la 9na (D), 11na (F), 13na (A). Para acordes menores: 9na (D), 11na (F), b13na (Ab). Para dominantes (V7): 9na (D o Db o D#), #11na (F#), 13na (A o Ab). Estas extensiones pueden usarse tanto en tiempos fuertes como débiles, pero es preferible resolver las alteradas (b9, #9, #11, b13) a notas del acorde en el tiempo siguiente.`,
+        "modal-color": `COLOR MODAL (Modal Interchange / Borrowing): Enriquece la paleta armónica usando grados de modos paralelos. En ${sectionKey} ${sectionScale}: (a) Intercambia una nota del modo dórico (6ta mayor en un contexto menor), o (b) usa la #4ta característica del Lidio en contextos mayores, o (c) la b7ta del Mixolidio para dar un sabor blues o rock. Esta técnica crea sorpresa armónica manteniendo la coherencia tonal.`,
+        "anticipations": `ANTICIPACIONES (Anticipations): En el compás o tiempo inmediatamente anterior a un cambio de acorde, toca la nota que corresponde al nuevo acorde en lugar del acorde actual. Por ejemplo, si el compás 1 tiene Am y el compás 2 tiene F, a partir del tiempo 3.5 del compás 1 puedes anticipar una nota de F (C o F o A). Esta técnica crea un pull rítmico emocional.`,
+        "suspensions": `SUSPENSIONES Y RETARDOS (Suspensions / Retardations): Al inicio de un nuevo acorde en los tiempos fuertes, retén la nota del acorde anterior (el grado 4 o 2 funcionando como suspensión) y luego resuélvela hacia abajo a la tercera o tónica del nuevo acorde. Ej. sus4→3: si el nuevo acorde es Am, empieza en D (sus4) y resuelve a C# (3ra). Esta crea una tensión expresiva y su resolución es muy satisfactoria.`,
+        "voice-leading": `CONDUCCIÓN DE VOCES (Voice Leading): Trata cada voz del acorde (soprano, alto, tenor, bajo) de forma independiente. Mueve cada voz lo menos posible entre acordes (movimiento por semitono o tono). Usa notas comunes (common tones) entre acordes adyacentes y mantenlas. Evita quintas y octavas paralelas. Aplica la regla del movimiento contrario: si el bajo sube, las voces superiores deben tender a bajar. Esta es la base del contrapunto y del arreglo profesional.`
+      };
+
+      const activeTechniques = ornamentalTypes
+        .filter(t => techniqueDescriptions[t])
+        .map(t => techniqueDescriptions[t])
+        .join("\n\n");
+
+      ornamentalTheoryBlock = `
+
+=== MODO TEORÍA MUSICAL AVANZADA Y NOTAS DE ADORNO (MÁXIMA EXPRESIVIDAD) ===
+Esta generación tiene activada la Teoría Musical Avanzada completa. DEBES aplicar las siguientes técnicas para crear una pista de acompañamiento rítmico-melódica de alta calidad profesional.
+
+TONALIDAD ACTIVA: ${sectionKey} ${sectionScale}
+GRADOS DE LA ESCALA: ${scaleGrades.join(", ")}
+
+REGLAS UNIVERSALES DE TEORÍA QUE SIEMPRE DEBES APLICAR:
+1. JERARQUÍA MÉTRICA: Las notas del acorde deben estar en los tiempos fuertes (0.0, 1.0, 2.0, 3.0). Las notas de adorno, paso y tensión en los débiles (0.25, 0.5, 0.75, 1.5, etc.).
+2. DIRECCIÓN MELÓDICA: La melodía debe tener forma de arco: sube gradualmente a un clímax en el centro-final de la sección y luego desciende para resolver.
+3. RANGO VOCAL NATURAL: Mantén las notas dentro de un rango de máximo 2 octavas. Para piano comping: mano izquierda C2-C3 (bajo), mano derecha C3-C5 (voicing del acorde y melodía).
+4. DENSIDAD RÍTMICA: Varía la densidad. No toques siempre la misma cantidad de notas. Crea respiración con algunos espacios de silencio.
+5. RESOLUCIÓN OBLIGATORIA: Cada nota de tensión o adorno DEBE resolverse en la siguiente nota del acorde activo. No dejes tensiones sin resolver al final de cada compás.
+
+TÉCNICAS ESPECÍFICAS HABILITADAS:
+${activeTechniques}
+
+⚠️ RECORDATORIO CRÍTICO — INCLUSO CON TEORÍA AVANZADA ACTIVADA:
+Las pianoNotes del acorde activo siguen siendo la base irrenunciable. Las técnicas anteriores son ADORNOS sobre esa base, NO un reemplazo. En cada compás:
+- Mínimo 60-70% de las notas deben ser chord tones (pianoNotes del acorde activo).
+- Máximo 30-40% pueden ser notas de adorno/paso/extensión.
+- Los tiempos fuertes (0.0, 1.0, 2.0, 3.0) SIEMPRE deben tener una nota del acorde.
+- Al cambiar de acorde, la primera nota DEBE ser del nuevo acorde.
+
+INSTRUCCIÓN FINAL: La pista resultante debe sonar como la tocara un músico profesional de sesión con pleno dominio de la teoría musical. El resultado debe ser expresivo, rítmicamente interesante y armónicamente rico, integrando las técnicas anteriores de forma natural y musical, no mecánica. Pero siempre respetando la progresión armónica como columna vertebral.`;
+    }
+
+    let midiConstraintBlock = "";
+    if (midiReferencePattern) {
+      midiConstraintBlock = `
+=== REGLA DE ORO: EXTRACCIÓN DE GROOVE MIDI (PRIORIDAD ABSOLUTA) ===
+El usuario ha subido un archivo MIDI de referencia para dictar la estructura rítmica exacta.
+DEBES REEMPLAZAR tu inventiva rítmica por este esqueleto rítmico extraído del MIDI.
+
+PATRÓN RÍTMICO DE REFERENCIA:
+${midiReferencePattern}
+
+TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
+1. Copia exactamente los momentos de inicio (startBeat o t) y duraciones (durationBeats) indicados en el patrón de referencia.
+2. Tu único trabajo creativo es decidir QUÉ NOTA (pitch) tocar en cada uno de esos momentos.
+3. Para decidir las notas, debes seguir estrictamente las "REGLAS DE ARMONIZACIÓN Y DIRECCIÓN MUSICAL" (usar las pianoNotes del acorde activo, aplicar notas de paso si está activo, etc.).
+4. Básicamente: (Ritmo del MIDI) + (Armonía de la Progresión) = Tu respuesta.
+5. Si el patrón MIDI es más largo que la sección, trúncalo. Si es más corto, haz un bucle (loop) del patrón hasta cubrir los ${totalBeats} tiempos.
+`;
+    }
+
+    const systemPrompt = `Eres un arreglista e instrumentista de sesión de clase mundial galardonado.${ornamentalTheoryBlock ? " Con dominio absoluto de la teoría musical y el contrapunto." : ""}${midiConstraintBlock}
     Tu tarea es componer una pista instrumental o de voz melódica solista que armonice a la perfección con la progresión de acordes de la sección dada.
 
     INFORMACIÓN DEL GRID TEMPORAL:
@@ -827,6 +916,14 @@ export async function generateSectionTrackAction(params: {
     DISTRIBUCIÓN OBLIGATORIA DE NOTAS POR ACORDE (CRÍTICO):
     Debes componer y distribuir notas para la totalidad de la progresión. Específicamente, debes asegurarte de colocar notas en el rango de tiempo de cada acorde. No dejes acordes vacíos sin melodía:
     ${chordCoverageInstructions}
+
+    ⚠️ REGLA FUNDAMENTAL — FIDELIDAD OBLIGATORIA A LOS ACORDES DE LA PROGRESIÓN (PRIORIDAD MÁXIMA):
+    Las notas del acorde activo (chord tones / pianoNotes listadas para cada acorde) son SIEMPRE la base armónica obligatoria de todo lo que generes. Esto aplica a TODAS las pistas sin excepción:
+    - En CADA compás (intervalo de 4 tiempos de un acorde), AL MENOS el 60-70% de las notas generadas DEBEN ser notas que pertenezcan al acorde activo (las pianoNotes listadas para ese acorde en la progresión).
+    - En los tiempos fuertes (0.0, 1.0, 2.0, 3.0 de cada compás) SIEMPRE debe sonar una nota del acorde activo.
+    - Las notas de adorno, paso, cromáticas o extensiones (si están habilitadas) SOLO pueden aparecer en tiempos débiles (0.25, 0.5, 0.75, 1.25, 1.5, etc.) y deben resolver inmediatamente a una nota del acorde activo.
+    - NUNCA generes un compás entero con notas que no pertenezcan al acorde activo. Eso sonaría disonante y fuera de la tonalidad.
+    - Al cambiar de acorde (ej. del tiempo 4.0 al siguiente), la primera nota DEBE ser una nota del nuevo acorde activo.
 
     REGLAS DE ARMONIZACIÓN Y DIRECCIÓN MUSICAL:
     1. Las notas generadas DEBEN empezar dentro de los tiempos de la sección (desde 0.0 hasta ${totalBeats}.0).
@@ -855,8 +952,17 @@ export async function generateSectionTrackAction(params: {
          * "A#2" (Pitch 46) para Charleston Abierto / Open Hi-Hat.
          * "C#3" (Pitch 49) para Platillo Crash / Crash Cymbal.
          * "G2" / "A2" / "B2" / "C3" (Pitches 43, 45, 47, 48) para Toms (Tom Grave, Medio y Agudo) para redobles.
-    7. Cada nota debe especificarse en formato de pitch con octava estándar (ej: C4, Eb4, G3, A#4, D5). En batería usa C2, D2, F#2, A#2, G2, A2, B2, C3 y C#3 para los elementos clave del kit.
-    8. Ajusta las velocidades (velocity) de 0.0 a 1.0 para dar un toque humano y expresivo.
+    7. Para la pista "Ritmo de Progresión" o pistas de teclado rítmico armónico (Comping):
+       - BASE ARMÓNICA ESTRICTA: La base de TODAS las notas que generes DEBE ser las pianoNotes exactas del acorde activo. Son tu vocabulario armónico primario e irrenunciable.
+       - ESTRUCTURA POR COMPÁS: Para cada acorde (cada 4 tiempos), debes usar las pianoNotes exactas proporcionadas para ese acorde. Por ejemplo, si el Acorde 1 tiene pianoNotes ["C3", "E3", "G3", "C4"], esas son las notas con las que construyes el acompañamiento rítmico de los tiempos 0.0 a 4.0.
+       - MANO IZQUIERDA (BAJO): Toca la primera pianoNote (nota más grave del acorde, típicamente la fundamental) una octava abajo (C2-C3) en el tiempo fuerte de cada compás para dar profundidad.
+       - MANO DERECHA (VOICING): Usa las demás pianoNotes del acorde para crear el patrón rítmico (arpegios, síncopas, acordes en bloque a contratiempo, etc.) en el rango C3-C5.
+       - NOTAS DE ADORNO (SOLO SI ESTÁN HABILITADAS): Si la Teoría Musical Avanzada está activada, puedes incluir notas de paso, cromáticas o extensiones SOLO en tiempos débiles (fracciones como 0.25, 0.75, 1.5, etc.), pero siempre resolviendo a una pianoNote del acorde activo en el siguiente tiempo fuerte. Las notas de adorno NO deben superar el 30% del total de notas del compás.
+       - Adapta el patrón rítmico al estilo del prompt del usuario (arpegios fluidos, síncopas, acordes en bloque, etc.).
+    8. Cada nota debe especificarse en formato de pitch con octava estándar (ej: C4, Eb4, G3, A#4, D5). En batería usa C2, D2, F#2, A#2, G2, A2, B2, C3 y C#3 para los elementos clave del kit.
+    9. Ajusta las velocidades (velocity) de 0.0 a 1.0 para dar un toque humano y expresivo.
+    10. DINÁMICAS Y VELOCIDAD (VELOCITY) BAJO DEMANDA: Si el usuario solicita dinámicas específicas en su prompt (por ejemplo: crescendo, decrescendo, pianissimo/suave (0.2-0.4), mezzoforte (0.5-0.7), fortissimo/fuerte (0.8-1.0), acentos o notas fantasma), DEBES programar minuciosamente la propiedad 'velocity' de cada nota a lo largo de la sección para simular esta expresividad física y volumen real. Si no se pide nada de esto en el prompt, usa variaciones sutiles (ej. acentuar sutilmente los tiempos fuertes con velocity 0.8-0.9 y rebajar tiempos débiles o contratiempos a 0.6-0.7).
+    11. RESOLUCIÓN FINAL EN OUTROS (CRÍTICO): Si la sección actual es de tipo "Outro" (sectionType: "${sectionType}" contiene "outro" o "final"), todas las pistas melódicas y armónicas (Bajo, Melodía, Piano/Teclado, etc.) DEBEN resolver sobre el último acorde en una única nota larga o acorde en bloque sostenido (resolución tónica final sostenida) con una duración de 6.0 tiempos (durationBeats: 6.0) para que el final de la canción suene conclusivo, natural y majestuoso, evitando continuar con frases dinámicas, rítmicas o repetitivas al final absoluto.
 
     EJEMPLO DE ESTRUCTURA JSON DE RESPUESTA (Para una sección de 4 acordes / 16 tiempos de duración total):
     {
@@ -902,6 +1008,24 @@ export async function generateSectionTrackAction(params: {
 - INSTRUCCIÓN DE COHERENCIA: Hacia los últimos compases de esta sección actual (tiempos ${totalBeats - 4}.0 a ${totalBeats}.0), conduce melódicamente las notas para crear una tensión, anticipación o resolución suave que sirva de puente natural para entrar a la sección siguiente (${nextSectionType}).`;
     }
 
+    let rhythmicContextInstructions = "";
+    if (progressionRhythmNotes && progressionRhythmNotes.length > 0) {
+      const formattedProgNotes = progressionRhythmNotes
+        .slice(0, 20) // limit to avoid massive context size
+        .map(n => `Nota: ${n.note}, start: ${n.startBeat}, duration: ${n.durationBeats}`)
+        .join("\n");
+
+      rhythmicContextInstructions = `\n\n--- CONTEXTO RÍTMICO DE LA PISTA DE ACOMPAÑAMIENTO (PROGRESIÓN) ---
+Aquí tienes las notas actuales y duraciones que están sonando en la pista de progresiones (acompañamiento) en esta misma sección:
+${formattedProgNotes}
+
+INSTRUCCIÓN DE COORDINACIÓN DE RITMO:
+Usa esta información para que la pista "${trackName}" juegue de forma complementaria. 
+- Puedes crear un contrapunto o jugar en contratiempo con el ritmo del acompañamiento.
+- Evita colisionar con las mismas rítmicas de forma tosca. Si el acompañamiento es denso, toca frases más ligeras. Si el acompañamiento tiene notas largas, puedes rellenar los espacios rítmicamente con pasajes más activos.
+- Coordina el groove para que el ensamble suene cohesionado y profesional.`;
+    }
+
     const targetPrompt = `Genera un arreglo melódico instrumental para la pista "${trackName}" (Canal MIDI ${midiChannel}) sobre el Verso/Sección "${sectionType}" de la canción "${songTitle}".
 Tonalidad de Sección: ${sectionKey} (${sectionScale})
 Progresión Armónica:\n${chordsString}
@@ -910,7 +1034,7 @@ DISTRIBUCIÓN DE NOTAS PARA ESTA GENERACIÓN (OBLIGATORIO):
 Debes generar notas a lo largo de toda la sección. Genera notas específicas para cada uno de los siguientes intervalos de acordes:
 ${chordCoverageInstructions}
 
-Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Instrumento: ${trackName}${transitionInstructions}`;
+Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Instrumento: ${trackName}${transitionInstructions}${rhythmicContextInstructions}${ornamentalTheoryBlock}`;
 
     const generatedTrackSchema = z.object({
       notes: z.array(z.object({
@@ -965,6 +1089,190 @@ Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Ins
       return {
         success: false,
         error: `Fallo al generar pista: ${fallbackError.message || fallbackError}`
+      };
+    }
+  }
+}
+
+/**
+ * Action: Refine an existing song structure using AI or a rule-based offline fallback.
+ */
+export async function refineSongWithAiAction(
+  currentSong: SongStructure,
+  userInstruction: string,
+  chatHistory: Array<{ role: "user" | "assistant"; text: string }> = []
+): Promise<{
+  success: boolean;
+  explanation?: string;
+  data?: SongStructure;
+  error?: string;
+}> {
+  // Offline fallback helper
+  const runOfflineRefinement = (song: SongStructure, instruction: string) => {
+    const updated = JSON.parse(JSON.stringify(song)) as SongStructure;
+    const instrLower = instruction.toLowerCase();
+    let explanation = "Refinamiento offline aplicado: ";
+    let changes: string[] = [];
+
+    // Title match
+    const titleMatch = instruction.match(/(?:título|titulo|llamar|llama|nombre)\s+["'«“]([^"'»”]+)["'»”]/i) ||
+                       instruction.match(/(?:título|titulo|llamar|llama|nombre)\s+(?:a|como)?\s+([A-Za-z0-9\sÁéíóúáÉÍÓÚñÑ]+)/i);
+    if (titleMatch) {
+      const newTitle = titleMatch[1].trim();
+      updated.title = newTitle;
+      changes.push(`Título cambiado a "${newTitle}"`);
+    }
+
+    // BPM match
+    const bpmValueMatch = instrLower.match(/(\d+)\s*(?:bpm|tempo)/) || instrLower.match(/(?:bpm|tempo)\s*(?:de|a)?\s*(\d+)/);
+    if (bpmValueMatch) {
+      const targetBpm = parseInt(bpmValueMatch[1], 10);
+      if (targetBpm >= 40 && targetBpm <= 240) {
+        updated.tempo = targetBpm;
+        changes.push(`Tempo establecido a ${targetBpm} BPM`);
+      }
+    } else {
+      const bpmAdjustMatch = instrLower.match(/(?:sube|aumenta|más rápido|mas rapido)\s*(\d+)?/) || instrLower.match(/(?:subir|aumentar)\s*(\d+)?/);
+      const bpmReduceMatch = instrLower.match(/(?:baja|reduce|más lento|mas lento)\s*(\d+)?/) || instrLower.match(/(?:bajar|reducir)\s*(\d+)?/);
+      if (bpmAdjustMatch) {
+        const amount = parseInt(bpmAdjustMatch[1], 10) || 10;
+        updated.tempo = Math.min(240, (updated.tempo || 80) + amount);
+        changes.push(`Tempo incrementado por ${amount} BPM a ${updated.tempo} BPM`);
+      } else if (bpmReduceMatch) {
+        const amount = parseInt(bpmReduceMatch[1], 10) || 10;
+        updated.tempo = Math.max(40, (updated.tempo || 80) - amount);
+        changes.push(`Tempo reducido por ${amount} BPM a ${updated.tempo} BPM`);
+      }
+    }
+
+    // Genre/Mood match
+    if (instrLower.includes("triste") || instrLower.includes("melancólico") || instrLower.includes("melancolico") || instrLower.includes("menor")) {
+      updated.genre = updated.genre || "Pop";
+      if (!updated.genre.toLowerCase().includes("triste") && !updated.genre.toLowerCase().includes("melancólico")) {
+        updated.genre = `${updated.genre} Melancólico`;
+      }
+      changes.push("Modificado el carácter armónico a acordes menores tristes");
+    }
+
+    if (changes.length > 0) {
+      explanation += changes.join(", ") + ".";
+    } else {
+      explanation += "No pudimos interpretar una instrucción específica offline. Intenta frases simples como 'sube el tempo 15 bpm' o 'cambia el título a Sol Naciente'.";
+    }
+
+    return { explanation, updatedSong: updated };
+  };
+
+  try {
+    const provider = await getActiveAiProvider();
+    
+    const systemPrompt = `Eres un productor musical de clase mundial y co-compositor interactivo.
+ Tu tarea es modificar la canción existente según la instrucción del usuario.
+ 
+ REGLAS DE REFINAMIENTO CRÍTICAS:
+ 1. NO TIENES QUE DEVOLVER LA CANCIÓN COMPLETA. Solo devuelve las modificaciones exactas que se te piden usando el esquema JSON proporcionado.
+ 2. MODIFICACIONES GLOBALES: Si el usuario pide cambiar el tempo, título, género o tonalidad general, usa el objeto 'modifications'.
+ 3. MODIFICACIONES DE SECCIONES (ACORDES): Si el usuario pide cambiar los acordes de una sección, usa 'sectionsToUpdate'. Asegúrate de incluir el 'sectionId' exacto y los nuevos 'chords'.
+ 4. MODIFICACIÓN DE PISTAS (ESTADOS Y NOTAS):
+    - Si el usuario te pide cambiar volumen, mute, solo, nombre o preset, usa 'tracksToUpdate' con el 'trackId' exacto.
+    - Si el usuario te pide modificar o re-generar las notas musicales o ritmo, NO escribas notas. Pon 'isGenerating': true en 'tracksToUpdate' para esa pista, y proporciona las instrucciones en 'prompts' (mapeo de sectionId -> instrucción).
+    - DINÁMICAS Y VELOCIDADES: Pon estas instrucciones directamente en el campo 'prompts' de la pista.`;
+
+    const historyPrompt = chatHistory.length > 0 
+      ? `Historial de la conversación:\n${chatHistory.map(m => `${m.role === "user" ? "Usuario" : "IA"}: ${m.text}`).join("\n")}\n\n`
+      : "";
+
+    const userPrompt = `${historyPrompt}Canción actual (JSON):\n${JSON.stringify({
+      title: currentSong.title, tempo: currentSong.tempo, genre: currentSong.genre,
+      sections: currentSong.sections.map(s => ({ id: s.id, type: s.type, chords: s.chords })),
+      tracks: currentSong.tracks?.map(t => ({ id: t.id, name: t.name, midiChannel: t.midiChannel, isProgressionRhythm: t.isProgressionRhythm }))
+    }, null, 2)}\n\nInstrucción de refinamiento del usuario: "${userInstruction}"`;
+
+    const { chordProgressionSchema } = await import("../schemas/chord-generator.schema");
+    const responseSchema = z.object({
+      explanation: z.string().describe("Breve descripción en español de los cambios realizados."),
+      modifications: z.object({
+        title: z.string().optional(),
+        genre: z.string().optional(),
+        tempo: z.number().optional(),
+        key: z.string().optional(),
+      }).optional(),
+      sectionsToUpdate: z.array(z.object({
+        sectionId: z.string(),
+        chords: chordProgressionSchema.optional()
+      })).optional(),
+      tracksToUpdate: z.array(z.object({
+        trackId: z.string(),
+        volume: z.number().optional(),
+        muted: z.boolean().optional(),
+        soloed: z.boolean().optional(),
+        instrumentPreset: z.string().optional(),
+        name: z.string().optional(),
+        isGenerating: z.boolean().optional(),
+        prompts: z.record(z.string(), z.string()).optional()
+      })).optional()
+    });
+
+    const result = await generateObject({
+      model: provider,
+      schema: responseSchema,
+      system: systemPrompt,
+      prompt: userPrompt,
+    });
+
+    if (result.object) {
+      const patchedSong = JSON.parse(JSON.stringify(currentSong)) as SongStructure;
+      
+      if (result.object.modifications) {
+        if (result.object.modifications.title) patchedSong.title = result.object.modifications.title;
+        if (result.object.modifications.genre) patchedSong.genre = result.object.modifications.genre;
+        if (result.object.modifications.tempo) patchedSong.tempo = result.object.modifications.tempo;
+        if (result.object.modifications.key) patchedSong.key = result.object.modifications.key;
+      }
+
+      if (result.object.sectionsToUpdate) {
+        result.object.sectionsToUpdate.forEach((secUpdate: any) => {
+          const sec = patchedSong.sections.find(s => s.id === secUpdate.sectionId);
+          if (sec && secUpdate.chords) sec.chords = secUpdate.chords;
+        });
+      }
+
+      if (result.object.tracksToUpdate && patchedSong.tracks) {
+        result.object.tracksToUpdate.forEach((trkUpdate: any) => {
+          const trk = patchedSong.tracks!.find(t => t.id === trkUpdate.trackId);
+          if (trk) {
+            if (trkUpdate.volume !== undefined) trk.volume = trkUpdate.volume;
+            if (trkUpdate.muted !== undefined) trk.muted = trkUpdate.muted;
+            if (trkUpdate.soloed !== undefined) trk.soloed = trkUpdate.soloed;
+            if (trkUpdate.instrumentPreset !== undefined) trk.instrumentPreset = trkUpdate.instrumentPreset;
+            if (trkUpdate.name !== undefined) trk.name = trkUpdate.name;
+            if (trkUpdate.isGenerating !== undefined) trk.isGenerating = trkUpdate.isGenerating;
+            if (trkUpdate.prompts) trk.prompts = { ...trk.prompts, ...trkUpdate.prompts };
+          }
+        });
+      }
+
+      return {
+        success: true,
+        explanation: result.object.explanation,
+        data: patchedSong,
+      };
+    }
+
+    throw new Error("Formato de refinamiento inválido");
+  } catch (error: any) {
+    console.warn("refineSongWithAiAction falló, ejecutando fallback offline:", error);
+    try {
+      const fallbackResult = runOfflineRefinement(currentSong, userInstruction);
+      return {
+        success: true,
+        explanation: fallbackResult.explanation,
+        data: fallbackResult.updatedSong,
+      };
+    } catch (fallbackError: any) {
+      return {
+        success: false,
+        error: `Fallo al refinar canción: ${fallbackError.message || fallbackError}`,
       };
     }
   }

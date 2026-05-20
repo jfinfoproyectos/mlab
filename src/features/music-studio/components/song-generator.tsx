@@ -17,7 +17,8 @@ import {
   saveSongAction, 
   loadUserSongsAction, 
   deleteSongAction,
-  generateSectionTrackAction
+  generateSectionTrackAction,
+  refineSongWithAiAction
 } from "../actions/song-generator.actions";
 import { generateChordProgressionAction } from "../actions/chord-generator.actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,12 +67,16 @@ import {
   Keyboard,
   Plus,
   Settings,
-  Cpu
+  Cpu,
+  MessageSquare,
+  Send,
+  Bot,
+  User
 } from "lucide-react";
 
 
 import { SongLibrary } from "./song-library";
-import { RhythmSequencer } from "./rhythm-sequencer";
+import { ProgressionRhythmDialog, type AiRhythmOptions } from "./progression-rhythm-dialog";
 import { SongComposerForm } from "./song-composer-form";
 import { SidebarSongLibrary } from "./sidebar-song-library";
 import { PlaybackControls } from "./playback-controls";
@@ -83,6 +88,7 @@ import { AiConfigForm } from "./ai-config-form";
 import { useSongPlayback } from "../hooks/use-song-playback";
 import { TrackComposerDialog } from "./TrackComposerDialog";
 import { SectionRegenDialog } from "./SectionRegenDialog";
+import { syncChordRhythmTrackNotes } from "../utils/chord-rhythm";
 
 // Helpers for visual color coding
 function getRoleColor(role: string): string {
@@ -160,22 +166,207 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
   useEffect(() => {
     activeSongRef.current = activeSong;
   }, [activeSong]);
+
+  // AI Chat States
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string; timestamp: Date }>>([
+    {
+      role: "assistant",
+      text: "¡Hola! Soy tu asistente de co-composición. Puedes pedirme cambios como 'Sube el tempo 10 BPM', 'Cambia el título a Luna Gris', o 'Haz el coro menor triste'.",
+      timestamp: new Date()
+    }
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatSending, setIsChatSending] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isChatOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages, isChatOpen]);
+
+  const handleSendChatMessage = async (e?: React.FormEvent, customPrompt?: string) => {
+    if (e) e.preventDefault();
+    const userMessageText = customPrompt || chatInput.trim();
+    if (!userMessageText || !activeSong || isChatSending) return;
+
+    if (!customPrompt) {
+      setChatInput("");
+    }
+    
+    setChatMessages((prev) => [
+      ...prev,
+      { role: "user", text: userMessageText, timestamp: new Date() },
+    ]);
+    setIsChatSending(true);
+
+    try {
+      const history = chatMessages.map((m) => ({ role: m.role, text: m.text }));
+      const result = await refineSongWithAiAction(activeSong, userMessageText, history);
+      
+      if (result.success && result.data) {
+        const mergedSong = result.data;
+        setActiveSong(mergedSong);
+        saveSongBackground(mergedSong);
+
+        // POST-PROCESSING: If AI flagged tracks with isGenerating: true, trigger the sub-agent
+        const tracksToRegen = mergedSong.tracks?.filter(t => t.isGenerating) || [];
+        if (tracksToRegen.length > 0) {
+          tracksToRegen.forEach(async (trackToRegen) => {
+            const sectionsWithChords = mergedSong.sections.filter(s => s.chords && s.chords.chords && s.chords.chords.length > 0);
+            if (sectionsWithChords.length === 0) return;
+            
+            const trackId = trackToRegen.id;
+            const toastId = `regen-${trackId}`;
+            toast.loading(`Sinfonía AI re-generando pista "${trackToRegen.name}"...`, { id: toastId });
+            
+            let completedCount = 0;
+            const newSectionNotes: Record<string, any> = {};
+            const generatedAiSections: Record<string, boolean> = {};
+            
+            for (let i = 0; i < sectionsWithChords.length; i++) {
+              const sect = sectionsWithChords[i];
+              // Use the prompt specific to this section if available, otherwise the first one, or fallback
+              const promptToUse = trackToRegen.prompts?.[sect.id] || Object.values(trackToRegen.prompts || {})[0] || "Generar notas adaptadas a la armonía";
+              
+              const chordsList = sect.chords!.chords.map(c => ({
+                chord: c.chord,
+                pianoNotes: c.pianoNotes || [],
+                role: c.role
+              }));
+
+              const prevSect = i > 0 ? sectionsWithChords[i - 1] : null;
+              const nextSect = i < sectionsWithChords.length - 1 ? sectionsWithChords[i + 1] : null;
+
+              const previousChordsList = prevSect?.chords?.chords.map(c => ({
+                chord: c.chord,
+                pianoNotes: c.pianoNotes || [],
+                role: c.role
+              })) || undefined;
+
+              const nextChordsList = nextSect?.chords?.chords.map(c => ({
+                chord: c.chord,
+                pianoNotes: c.pianoNotes || [],
+                role: c.role
+              })) || undefined;
+
+              try {
+                const res = await generateSectionTrackAction({
+                  songTitle: mergedSong.title,
+                  sectionType: sect.type,
+                  sectionKey: sect.key,
+                  sectionScale: sect.scale,
+                  chordsList,
+                  trackName: trackToRegen.name,
+                  midiChannel: trackToRegen.midiChannel,
+                  userPrompt: promptToUse,
+                  previousSectionType: prevSect?.type,
+                  previousChordsList,
+                  nextSectionType: nextSect?.type,
+                  nextChordsList,
+                });
+
+                if (res.success && res.data?.notes && res.data.notes.length > 0) {
+                  newSectionNotes[sect.id] = res.data.notes;
+                  generatedAiSections[sect.id] = true;
+                } else {
+                   // Fallback to preserving the old notes if it fails
+                   newSectionNotes[sect.id] = trackToRegen.sectionNotes?.[sect.id] || [];
+                }
+              } catch (e) {
+                newSectionNotes[sect.id] = trackToRegen.sectionNotes?.[sect.id] || [];
+              }
+              completedCount++;
+              
+              // Update progress visually
+              setActiveSong(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  tracks: prev.tracks?.map(t => 
+                    t.id === trackId ? { ...t, progress: Math.round((completedCount / sectionsWithChords.length) * 100) } : t
+                  )
+                };
+              });
+            }
+            
+            // Finalize
+            setActiveSong(prev => {
+              if (!prev) return prev;
+              const updatedTracks = (prev.tracks || []).map(t => {
+                if (t.id === trackId) {
+                  return {
+                    ...t,
+                    sectionNotes: { ...t.sectionNotes, ...newSectionNotes },
+                    aiSections: { ...t.aiSections, ...generatedAiSections },
+                    isGenerating: false,
+                    progress: 100
+                  };
+                }
+                return t;
+              });
+              const updated = { ...prev, tracks: updatedTracks };
+              setTimeout(() => saveSongBackground(updated), 0);
+              return updated;
+            });
+            toast.dismiss(toastId);
+            toast.success(`¡Pista "${trackToRegen.name}" actualizada con la nueva instrucción!`);
+          });
+        }
+
+        setChatMessages((prev) => [
+          ...prev,
+          { 
+            role: "assistant", 
+            text: result.explanation || "He aplicado los refinamientos solicitados a tu canción.", 
+            timestamp: new Date() 
+          },
+        ]);
+        toast.success("¡Canción refinada con éxito!");
+      } else {
+        toast.error(result.error || "No se pudo refinar la canción.");
+        setChatMessages((prev) => [
+          ...prev,
+          { 
+            role: "assistant", 
+            text: `Lo siento, ocurrió un error: ${result.error || "Error desconocido"}.`, 
+            timestamp: new Date() 
+          },
+        ]);
+      }
+    } catch (err: any) {
+      toast.error("Error al comunicarse con el asistente de co-composición.");
+      setChatMessages((prev) => [
+        ...prev,
+        { 
+          role: "assistant", 
+          text: "Lo siento, ocurrió un error al procesar tu solicitud con el asistente.", 
+          timestamp: new Date() 
+        },
+      ]);
+    } finally {
+      setIsChatSending(false);
+    }
+  };
+
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   // Helper to automatically background-save song changes to DB
-  const saveSongBackground = async (updatedSong: SongStructure) => {
+  const saveSongBackground = useCallback(async (updatedSong: SongStructure) => {
     if (!updatedSong.id) return;
     try {
       await saveSongAction(updatedSong);
     } catch (e) {
       console.warn("Background auto-save failed:", e);
     }
-  };
+  }, []);
+
 
   const handleUpdateNote = (
     trackId: string,
     sectionId: string,
     noteIndex: number,
-    updatedNote: { pitch: string; durationBeats: number; startBeat: number }
+    updatedNote: { pitch: string; durationBeats: number; startBeat: number; velocity?: number }
   ) => {
     if (!activeSong) return;
 
@@ -189,13 +380,21 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         ...notes[noteIndex],
         note: updatedNote.pitch,
         durationBeats: updatedNote.durationBeats,
-        startBeat: updatedNote.startBeat
+        startBeat: updatedNote.startBeat,
+        velocity: updatedNote.velocity !== undefined ? updatedNote.velocity : notes[noteIndex].velocity
       };
       
       track.sectionNotes = {
         ...track.sectionNotes,
         [sectionId]: notes
       };
+
+      if (track.isProgressionRhythm) {
+        track.aiSections = {
+          ...(track.aiSections || {}),
+          [sectionId]: true
+        };
+      }
 
       setActiveSong(newSong);
       saveSongBackground(newSong);
@@ -272,85 +471,102 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
   const [regenTrackId, setRegenTrackId] = useState<string>("");
   const [regenSectionId, setRegenSectionId] = useState<string>("");
 
+  // AI Rhythm Assistant States
+  const [isRhythmAssistantOpen, setIsRhythmAssistantOpen] = useState(false);
+  const [rhythmAssistantSectionId, setRhythmAssistantSectionId] = useState<string | null>(null);
+  const [isGeneratingRhythm, setIsGeneratingRhythm] = useState(false);
 
+  const handleGenerateAiRhythm = async (prompt: string, sectionIds: string[], options: AiRhythmOptions = { useOrnamentalNotes: false, ornamentalTypes: [] }) => {
+    if (!activeSong) return;
 
-  const toggleStepNote = (rowIdx: number, stepIdx: number) => {
-    const newSteps = customRhythmSteps.map((row, rIdx) => 
-      rIdx === rowIdx 
-        ? row.map((val, sIdx) => sIdx === stepIdx ? !val : val)
-        : [...row]
-    );
-    setCustomRhythmSteps(newSteps);
-    
-    // Auto-select "custom" option if modifying active grid steps while on another pattern
-    if (!selectedRhythmPattern.startsWith("custom")) {
-      setSelectedRhythmPattern("custom");
+    setIsGeneratingRhythm(true);
+    const toastId = toast.loading(`Generando ritmo IA para ${sectionIds.length} sección(es)...`);
+
+    try {
+      // Deep clone the song tracks structure to ensure state mutations are properly picked up
+      const newSong = {
+        ...activeSong,
+        tracks: activeSong.tracks?.map(t => ({
+          ...t,
+          sectionNotes: { ...(t.sectionNotes || {}) },
+          aiSections: { ...(t.aiSections || {}) },
+          prompts: { ...(t.prompts || {}) }
+        })) || []
+      };
+
+      // Find or create the progression rhythm track
+      let rhythmTrack = newSong.tracks.find(t => t.isProgressionRhythm);
+      if (!rhythmTrack) {
+        rhythmTrack = {
+          id: `track-rhythm-progression-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: "Ritmo de Progresión",
+          midiChannel: 1,
+          instrumentPreset: "grand-piano",
+          volume: 0.75,
+          prompts: {},
+          sectionNotes: {},
+          isProgressionRhythm: true,
+          aiSections: {}
+        };
+        newSong.tracks.unshift(rhythmTrack);
+      }
+
+      // Generate rhythm sequentially for each section
+      for (const sectionId of sectionIds) {
+        const section = activeSong.sections.find(s => s.id === sectionId);
+        if (!section || !section.chords || !section.chords.chords) continue;
+
+        const chordsList = section.chords.chords.map(c => ({
+          chord: c.chord,
+          pianoNotes: c.pianoNotes || [],
+          role: c.role || "Tónica"
+        }));
+
+        const result = await generateSectionTrackAction({
+          songTitle: activeSong.title || "Mi Canción",
+          sectionType: section.type,
+          sectionKey: section.key || activeSong.key || "C",
+          sectionScale: section.scale || "major",
+          chordsList,
+          trackName: "Ritmo de Progresión",
+          midiChannel: 1,
+          userPrompt: prompt,
+          useOrnamentalNotes: options.useOrnamentalNotes,
+          ornamentalTypes: options.ornamentalTypes,
+          midiReferencePattern: options.midiReferencePattern
+        });
+
+        if (result.success && result.data && result.data.notes) {
+          rhythmTrack.sectionNotes = {
+            ...rhythmTrack.sectionNotes,
+            [sectionId]: result.data.notes
+          };
+          rhythmTrack.aiSections = {
+            ...rhythmTrack.aiSections,
+            [sectionId]: true
+          };
+          rhythmTrack.prompts = {
+            ...rhythmTrack.prompts,
+            [sectionId]: prompt
+          };
+        } else {
+          console.warn(`No se pudieron generar notas para la sección ${section.type}: ${result.error}`);
+        }
+      }
+
+      setActiveSong(newSong);
+      await saveSongBackground(newSong);
+      toast.dismiss(toastId);
+      toast.success("¡Ritmo generado con IA y aplicado a la pista de progresiones!");
+    } catch (err: any) {
+      console.error("Error generating progression rhythms:", err);
+      toast.dismiss(toastId);
+      toast.error("Error al generar los ritmos con IA.");
+    } finally {
+      setIsGeneratingRhythm(false);
     }
   };
-
-  const clearCustomSteps = () => {
-    setCustomRhythmSteps(Array(5).fill(null).map(() => Array(16).fill(false)));
-    setSelectedRhythmPattern("custom");
-    toast.success("Piano Roll limpiado.");
-  };
-
-  const fillFourOnFloorChords = () => {
-    const grid = Array(5).fill(null).map(() => Array(16).fill(false));
-    [0, 4, 8, 12].forEach(step => {
-      grid[0][step] = true; // Bass
-      grid[1][step] = true; // Chord note 1
-      grid[2][step] = true; // Chord note 2
-      grid[3][step] = true; // Chord note 3
-      grid[4][step] = true; // Chord note 4
-    });
-    setCustomRhythmSteps(grid);
-    setSelectedRhythmPattern("custom");
-    toast.success("Patrón 4-on-the-Floor cargado.");
-  };
-
-  const loadPopGrooveTemplate = () => {
-    const popGroove2D = migrate1DTo2D([
-      "both", "rest", "single", "chord", "rest", "single", "chord", "rest",
-      "bass", "rest", "single", "chord", "rest", "single", "both", "rest"
-    ]);
-    setCustomRhythmSteps(popGroove2D);
-    setSelectedRhythmPattern("custom");
-    toast.success("Relleno Pop cargado.");
-  };
-
-  const saveCustomRhythm = () => {
-    if (!newRhythmName.trim()) {
-      toast.error("Por favor, introduce un nombre para tu patrón rítmico.");
-      return;
-    }
-    const newId = `rhythm-${Date.now()}`;
-    const newPattern = {
-      id: newId,
-      name: newRhythmName.trim(),
-      steps: customRhythmSteps.map(row => [...row])
-    };
-    const updated = [...savedRhythms, newPattern];
-    setSavedRhythms(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("musiclab_custom_rhythms", JSON.stringify(updated));
-    }
-    setSelectedRhythmPattern(`custom-${newId}`);
-    setNewRhythmName("");
-    toast.success(`¡Patrón "${newPattern.name}" guardado exitosamente!`);
-  };
-
-  const deleteCustomRhythm = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedRhythms.filter(r => r.id !== id);
-    setSavedRhythms(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("musiclab_custom_rhythms", JSON.stringify(updated));
-    }
-    if (selectedRhythmPattern === `custom-${id}` || selectedRhythmPattern === "custom") {
-      setSelectedRhythmPattern("pop-ballad");
-    }
-    toast.success("Patrón rítmico eliminado.");
-  };
+  
   // Updaters for song-level tracks (with fallback support for legacy section-level tracks)
   const handleUpdateTrackVolume = (sectionId: string | null, trackId: string, vol: number) => {
     if (!activeSong) return;
@@ -532,10 +748,11 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     midiChannel: number;
     instrumentPreset: string;
     prompt: string;
+    syncWithProgression?: boolean;
   }) => {
     if (!activeSong) return;
 
-    const { trackName, midiChannel, instrumentPreset, prompt } = params;
+    const { trackName, midiChannel, instrumentPreset, prompt, syncWithProgression } = params;
     
     // Check if the song has at least one section with chords
     const sectionsWithChords = activeSong.sections.filter(s => s.chords && s.chords.chords && s.chords.chords.length > 0);
@@ -604,6 +821,15 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           role: c.role
         })) || undefined;
 
+        // Extract progression track notes for the current section if syncWithProgression is true
+        let progressionRhythmNotes = undefined;
+        if (syncWithProgression) {
+          const progressionTrack = activeSong.tracks?.find(t => t.isProgressionRhythm);
+          if (progressionTrack) {
+            progressionRhythmNotes = progressionTrack.sectionNotes?.[sect.id];
+          }
+        }
+
         try {
           const res = await generateSectionTrackAction({
             songTitle: activeSong.title,
@@ -617,7 +843,8 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
             previousSectionType: prevSect?.type,
             previousChordsList,
             nextSectionType: nextSect?.type,
-            nextChordsList
+            nextChordsList,
+            progressionRhythmNotes
           });
 
           completedCount++;
@@ -721,7 +948,12 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     }
   };
 
-  const handleRegenerateTrackSection = async (trackId: string, sectionId: string, customPrompt: string) => {
+  const handleRegenerateTrackSection = async (
+    trackId: string,
+    sectionId: string,
+    customPrompt: string,
+    syncWithProgression?: boolean
+  ) => {
     if (!activeSong) return;
     const track = activeSong.tracks?.find(t => t.id === trackId);
     if (!track) {
@@ -759,6 +991,15 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
 
     const previousSectionNotes = prevSect ? track.sectionNotes?.[prevSect.id] : undefined;
 
+    // Extract progression track notes for the current section if syncWithProgression is true
+    let progressionRhythmNotes = undefined;
+    if (syncWithProgression) {
+      const progressionTrack = activeSong.tracks?.find(t => t.isProgressionRhythm);
+      if (progressionTrack) {
+        progressionRhythmNotes = progressionTrack.sectionNotes?.[sectionId];
+      }
+    }
+
     try {
       const chordsList = section.chords.chords.map(c => ({
         chord: c.chord,
@@ -779,7 +1020,8 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         previousChordsList,
         previousSectionNotes,
         nextSectionType: nextSect?.type,
-        nextChordsList
+        nextChordsList,
+        progressionRhythmNotes
       });
 
       toast.dismiss("sec-regen-toast");
@@ -796,6 +1038,10 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
               sectionNotes: {
                 ...t.sectionNotes,
                 [sectionId]: res.data!.notes
+              },
+              aiSections: {
+                ...(t.aiSections || {}),
+                [sectionId]: true
               }
             };
           }
@@ -822,6 +1068,40 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
       setGeneratingSectionIds(prev => ({ ...prev, [sectionId]: false }));
     }
   };
+
+  const handleResetSectionSync = useCallback((trackId: string, sectionId: string) => {
+    if (!activeSongRef.current) return;
+
+    const updatedTracks = (activeSongRef.current.tracks || []).map(t => {
+      if (t.id === trackId) {
+        const nextAiSections = { ...(t.aiSections || {}) };
+        delete nextAiSections[sectionId];
+        return {
+          ...t,
+          aiSections: nextAiSections
+        };
+      }
+      return t;
+    });
+
+    const baseSong = {
+      ...activeSongRef.current,
+      tracks: updatedTracks
+    };
+
+    const synced = syncChordRhythmTrackNotes(
+      baseSong,
+      selectedRhythmPattern,
+      playbackMode,
+      customRhythmSteps,
+      selectedArpeggioPattern
+    );
+
+    setActiveSong(synced);
+    activeSongRef.current = synced;
+    saveSongBackground(synced);
+    toast.success("Sección re-sincronizada con el patrón de ritmo global.");
+  }, [selectedRhythmPattern, playbackMode, customRhythmSteps, selectedArpeggioPattern, setActiveSong, saveSongBackground]);
 
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<SongInput>({
     resolver: zodResolver(songInputSchema),
@@ -1019,8 +1299,32 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           }
         }
 
+        // Construct final song structure with all generated chords
+        const finalSections = newSong.sections.map(sect => ({
+          ...sect,
+          chords: generatedSectionsMap.get(sect.type) || null
+        }));
+
+        const completedSong: SongStructure = {
+          ...newSong,
+          sections: finalSections
+        };
+
+        // Initialize the progression track explicitly with block chords (basic mode)
+        const initializedSong = syncChordRhythmTrackNotes(
+          completedSong,
+          "pop-ballad",
+          "basic",
+          Array(5).fill(null).map(() => Array(16).fill(false)),
+          "up-down"
+        );
+
+        setActiveSong(initializedSong);
+        activeSongRef.current = initializedSong;
+        setActiveSectionId(initializedSong.sections[0].id);
+
         setSongGenProgress(100);
-        setSongGenStatus("¡Composición finalizada! Sincronizando mezclador multipista...");
+        setSongGenStatus("¡Composición finalizada! Secuenciando progresiones...");
         toast.success("¡Canción completa generada!");
         setIsComposerOpen(false);
       } else {
@@ -1145,15 +1449,35 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
       });
 
       if (tracksToRegenerate.length === 0) {
-        // No melody tracks: just save the new chords to the database
-        const updated = {
+        // No melody tracks: update chords and sync rhythm track
+        const baseUpdated = {
           ...activeSong,
           sections: activeSong.sections.map(s => 
             s.id === section.id ? { ...s, chords: newChords } : s
-          )
+          ),
+          tracks: (activeSong.tracks || []).map(t => {
+            if (t.isProgressionRhythm) {
+              const aiSections = { ...t.aiSections };
+              delete aiSections[section.id];
+              return {
+                ...t,
+                aiSections
+              };
+            }
+            return t;
+          })
         };
-        setActiveSong(updated);
-        saveSongBackground(updated);
+
+        const synced = syncChordRhythmTrackNotes(
+          baseUpdated,
+          selectedRhythmPattern,
+          playbackMode,
+          customRhythmSteps,
+          selectedArpeggioPattern
+        );
+
+        setActiveSong(synced);
+        saveSongBackground(synced);
         toast.dismiss(toastId);
         toast.success(`¡Sección ${section.type} y progresiones regeneradas con éxito!`);
         return;
@@ -1261,13 +1585,35 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           return t;
         });
 
+        // Clear any AI-generated custom rhythm notes flag for the regenerated section 
+        // on the progression rhythm track so that syncChordRhythmTrackNotes regenerates it.
+        const cleanedTracks = updatedTracks.map(t => {
+          if (t.isProgressionRhythm) {
+            const aiSections = { ...t.aiSections };
+            delete aiSections[section.id];
+            return {
+              ...t,
+              aiSections
+            };
+          }
+          return t;
+        });
+
         const updated = {
           ...prev,
-          tracks: updatedTracks
+          tracks: cleanedTracks
         };
 
-        setTimeout(() => saveSongBackground(updated), 0);
-        return updated;
+        const synced = syncChordRhythmTrackNotes(
+          updated,
+          selectedRhythmPattern,
+          playbackMode,
+          customRhythmSteps,
+          selectedArpeggioPattern
+        );
+
+        setTimeout(() => saveSongBackground(synced), 0);
+        return synced;
       });
 
       toast.dismiss(toastId);
@@ -1329,7 +1675,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={stopPlayback}
+                      onClick={() => stopPlayback()}
                       disabled={!isPlaying && playbackChordIndex === -1}
                       className="w-8 h-8 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
                     >
@@ -1408,62 +1754,6 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                     title={`Volumen Maestro: ${Math.round(playbackVolume * 100)}%`}
                   />
                 </div>
-
-                {/* Playback Mode select dropdown inside top bar */}
-                <select
-                  value={playbackMode}
-                  onChange={(e) => setPlaybackMode(e.target.value as any)}
-                  className="rounded-xl border border-border bg-background text-foreground h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none"
-                >
-                  <option value="basic">🎵 Básico</option>
-                  <option value="rhythm">🥁 Ritmos</option>
-                  <option value="arpeggio">✨ Arpegios</option>
-                  <option value="custom-rhythm">🛠️ Personalizado</option>
-                </select>
-
-                {/* Conditionally show rhythm or arpeggio preset selection inside top bar */}
-                {playbackMode === "rhythm" && (
-                  <select
-                    value={selectedRhythmPattern}
-                    onChange={(e) => setSelectedRhythmPattern(e.target.value)}
-                    className="rounded-xl border border-emerald-500/20 bg-background text-emerald-650 dark:text-emerald-400 h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none max-w-[120px]"
-                  >
-                    <option value="pop-ballad">Balada Pop</option>
-                    <option value="classical-alberti">Alberti Clás.</option>
-                    <option value="neo-soul-arpeggio">Neo-Soul</option>
-                    <option value="bossa-nova">Bossa Nova</option>
-                    <option value="lofi-chill">Lo-Fi Chill</option>
-                    <option value="salsa-tumbao">Salsa</option>
-                    <option value="bachata-bolero">Bachata</option>
-                    <option value="reggaeton-dembow">Reggaeton</option>
-                    <option value="bolero-romantico">Bolero</option>
-                    <option value="jazz-swing">Jazz Swing</option>
-                    <option value="boogie-woogie">Boogie</option>
-                    <option value="funk-clav">Funk Clav</option>
-                    <option value="ambient-drone">Ambient</option>
-                    <option value="cumbia-colombiana">Cumbia</option>
-                    <option value="edm-house">House/EDM</option>
-                    <option value="rb-trap-soul">Trap Soul</option>
-                    <option value="flamenco-rumba">Rumba Flam.</option>
-                  </select>
-                )}
-
-                {playbackMode === "arpeggio" && (
-                  <select
-                    value={selectedArpeggioPattern}
-                    onChange={(e) => setSelectedArpeggioPattern(e.target.value)}
-                    className="rounded-xl border border-emerald-500/20 bg-background text-emerald-655 dark:text-emerald-400 h-8 px-2 text-[10px] font-bold focus:outline-none hover:bg-muted transition-colors cursor-pointer select-none max-w-[120px]"
-                  >
-                    <option value="up-down">Triángulo</option>
-                    <option value="up">Ascendente</option>
-                    <option value="down">Descendente</option>
-                    <option value="down-up">Valle</option>
-                    <option value="cross">Espiral</option>
-                    <option value="double-strike">Doble Nota</option>
-                    <option value="random">Aleatorio</option>
-                    <option value="cascade">Cascada</option>
-                  </select>
-                )}
               </div>
             )}
 
@@ -1528,6 +1818,25 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                     </DialogTrigger>
                   </TooltipTrigger>
                   <TooltipContent>Componer con IA</TooltipContent>
+                </Tooltip>
+
+                {/* Collapsible Chat assistant toggle button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      onClick={() => setIsChatOpen(!isChatOpen)}
+                      disabled={!activeSong}
+                      variant={isChatOpen ? "default" : "outline"}
+                      className={`rounded-xl w-8 h-8 p-0 flex items-center justify-center transition-all duration-200 ${
+                        isChatOpen 
+                          ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 border-primary" 
+                          : "border-border hover:bg-muted"
+                      }`}
+                    >
+                      <MessageSquare className={`w-3.5 h-3.5 ${isChatOpen ? "text-primary-foreground" : "text-primary"}`} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Asistente Chat IA</TooltipContent>
                 </Tooltip>
                 
                 {/* The wide modal content with vertical scroll */}
@@ -1917,8 +2226,47 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                         {/* Modular AI Generation Section Pills */}
                         <div className="space-y-1 border-t border-border/10 pt-2">
                           {track.isProgressionRhythm ? (
-                            <div className="text-[8px] text-purple-400 font-bold bg-purple-550/5 border border-purple-550/10 px-1.5 py-0.5 rounded-md truncate">
-                              ⚡ Auto-sincronizado
+                            <div className="space-y-1.5">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setRhythmAssistantSectionId(null);
+                                  setIsRhythmAssistantOpen(true);
+                                }}
+                                className="w-full text-[9px] font-black h-7 rounded-xl border-purple-500/25 bg-purple-500/5 hover:bg-purple-500/10 text-purple-450 dark:text-purple-400 cursor-pointer flex items-center justify-center gap-1"
+                              >
+                                <Sliders className="w-2.5 h-2.5" />
+                                Ajustar Ritmo y Acompañamiento
+                              </Button>
+                              <div className="flex flex-wrap gap-1">
+                                {activeSong.sections.map((sect) => {
+                                  const isAi = track.aiSections?.[sect.id] === true;
+                                  return (
+                                    <button
+                                      key={sect.id}
+                                      onClick={() => {
+                                        setRhythmAssistantSectionId(sect.id);
+                                        setIsRhythmAssistantOpen(true);
+                                      }}
+                                      className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold border transition-all duration-150 cursor-pointer ${
+                                        isAi
+                                          ? "bg-purple-500/5 border-purple-500/20 text-purple-400 hover:bg-purple-500/15"
+                                          : "bg-muted/20 border-dashed border-border/50 text-muted-foreground hover:bg-muted/50"
+                                      }`}
+                                      title={isAi ? `Sección ${sect.type} personalizada con IA. Click para cambiar.` : `Sección ${sect.type} sincronizada globalmente. Click para personalizar con IA.`}
+                                    >
+                                      {isAi ? (
+                                        <Check className="w-2.5 h-2.5 text-purple-400" />
+                                      ) : (
+                                        <span className="w-1 h-1 bg-muted-foreground/40 rounded-full" />
+                                      )}
+                                      <span>{sect.type.substring(0, 4)}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
                           ) : (
                             <div className="flex flex-wrap gap-1">
@@ -2042,24 +2390,6 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                     </div>
                   </div>
 
-                  {/* Creador de Ritmos Personalizados (Sequenciador de 16 Pasos) */}
-                  <RhythmSequencer
-                    playbackMode={playbackMode}
-                    selectedRhythmPattern={selectedRhythmPattern}
-                    customRhythmSteps={customRhythmSteps}
-                    toggleStepNote={toggleStepNote}
-                    loadPopGrooveTemplate={loadPopGrooveTemplate}
-                    fillFourOnFloorChords={fillFourOnFloorChords}
-                    clearCustomSteps={clearCustomSteps}
-                    newRhythmName={newRhythmName}
-                    setNewRhythmName={setNewRhythmName}
-                    saveCustomRhythm={saveCustomRhythm}
-                    savedRhythms={savedRhythms}
-                    setCustomRhythmSteps={setCustomRhythmSteps}
-                    setSelectedRhythmPattern={setSelectedRhythmPattern}
-                    deleteCustomRhythm={deleteCustomRhythm}
-                  />
-
                   <ArrangementTimeline
                     activeSong={activeSong}
                     activeSectionId={activeSectionId}
@@ -2077,10 +2407,17 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                       getRoleColor={getRoleColor}
                       tracks={activeSong.tracks || []}
                       onRegenerateTrackSectionClick={(trackId, sectionId) => {
-                        setRegenTrackId(trackId);
-                        setRegenSectionId(sectionId);
-                        setIsSectionRegenOpen(true);
+                        const track = activeSong.tracks?.find(t => t.id === trackId);
+                        if (track?.isProgressionRhythm) {
+                          setRhythmAssistantSectionId(sectionId);
+                          setIsRhythmAssistantOpen(true);
+                        } else {
+                          setRegenTrackId(trackId);
+                          setRegenSectionId(sectionId);
+                          setIsSectionRegenOpen(true);
+                        }
                       }}
+                      onResetSectionSyncClick={handleResetSectionSync}
                     />
                   )}
                 </div>
@@ -2090,7 +2427,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
 
         {/* Tab 3: Interactive Piano Roll View */}
         <TabsContent value="pianoroll" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col w-full h-full">
-          {activeSong ? (
+          {activeSong && activeTab === "pianoroll" ? (
             <PianoRoll
               activeSong={activeSong}
               isPlaying={isPlaying}
@@ -2106,6 +2443,10 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
               visibleTrackIds={visiblePianoRollTracks}
               onUpdateNote={handleUpdateNote}
             />
+          ) : activeSong ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
+              <h3 className="text-xl font-bold">Cargando Piano Roll...</h3>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
               <h3 className="text-xl font-bold">Carga una canción para ver el Piano Roll</h3>
@@ -2129,6 +2470,122 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           />
         </TabsContent>
           </div>
+
+          {/* AI CO-COMPOSITION CHAT SIDEBAR */}
+          {activeSong && isChatOpen && (
+            <div className="w-[350px] border-l border-border/40 bg-zinc-50/50 dark:bg-zinc-950/25 backdrop-blur-md flex flex-col shrink-0 h-full animate-in slide-in-from-right duration-300 min-h-0 select-none">
+              {/* Chat Header */}
+              <div className="p-4 border-b border-border/30 flex items-center justify-between bg-card/15">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary animate-pulse" />
+                  <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">Copiloto IA</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsChatOpen(false)}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+                {chatMessages.map((msg, idx) => {
+                  const isUser = msg.role === "user";
+                  return (
+                    <div 
+                      key={idx} 
+                      className={`flex gap-2 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}
+                    >
+                      <div 
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
+                          isUser ? "bg-primary/20 text-primary" : "bg-purple-500/20 text-purple-400"
+                        }`}
+                      >
+                        {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                      </div>
+                      <div 
+                        className={`rounded-2xl p-3 text-xs leading-relaxed border shadow-sm ${
+                          isUser 
+                            ? "bg-primary text-primary-foreground border-primary/25 rounded-tr-none" 
+                            : "bg-card/45 text-foreground border-border/35 rounded-tl-none"
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                        <span className="text-[8px] opacity-60 block mt-1 font-mono text-right">
+                          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {isChatSending && (
+                  <div className="flex gap-2 max-w-[85%] mr-auto animate-pulse">
+                    <div className="w-7 h-7 rounded-lg bg-purple-550/20 text-purple-400 flex items-center justify-center shrink-0">
+                      <Bot className="w-3.5 h-3.5 animate-bounce" />
+                    </div>
+                    <div className="rounded-2xl p-3 text-xs bg-card/45 text-muted-foreground border border-border/35 rounded-tl-none flex items-center gap-1">
+                      <span>Procesando arreglo con IA</span>
+                      <span className="flex gap-0.5">
+                        <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce delay-75" />
+                        <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce delay-150" />
+                        <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce delay-225" />
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Interactive Quick Prompts (chips) */}
+              <div className="p-3 border-t border-border/20 bg-card/5 flex flex-col gap-2">
+                <span className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest">Sugerencias:</span>
+                <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto no-scrollbar">
+                  {[
+                    "Sube el tempo 10 BPM",
+                    "Reduce el tempo 10 BPM",
+                    "Haz el coro menor triste",
+                    "Cambia el título a Noche Estrellada",
+                    "Cambia el género a Balada Lo-Fi"
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      disabled={isChatSending}
+                      onClick={() => handleSendChatMessage(undefined, chip)}
+                      className="px-2 py-1 text-[10px] font-bold rounded-xl bg-card border border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all duration-150 active:scale-95 disabled:opacity-50"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat Input form */}
+              <form 
+                onSubmit={handleSendChatMessage} 
+                className="p-3 border-t border-border/30 bg-card/25 flex gap-2"
+              >
+                <Input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Instrucción de refinamiento..."
+                  disabled={isChatSending}
+                  className="rounded-xl h-9 text-xs border-border/65 bg-background/50 focus-visible:ring-1"
+                />
+                <Button 
+                  type="submit" 
+                  disabled={isChatSending || !chatInput.trim()}
+                  className="rounded-xl h-9 w-9 p-0 bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 shrink-0"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </Button>
+              </form>
+            </div>
+          )}
         </div>
       </Tabs>
 
@@ -2137,8 +2594,8 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         open={isTrackComposerOpen}
         onOpenChange={setIsTrackComposerOpen}
         activeSong={activeSong}
-        onGenerateTrack={(trackName, midiChannel, instrumentPreset, prompt) =>
-          handleGenerateTrack({ trackName, midiChannel, instrumentPreset, prompt })
+        onGenerateTrack={(trackName, midiChannel, instrumentPreset, prompt, syncWithProgression) =>
+          handleGenerateTrack({ trackName, midiChannel, instrumentPreset, prompt, syncWithProgression })
         }
       />
 
@@ -2149,7 +2606,25 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         activeSong={activeSong}
         regenTrackId={regenTrackId}
         regenSectionId={regenSectionId}
-        onRegenerate={handleRegenerateTrackSection}
+        onRegenerate={(trackId, sectionId, prompt, syncWithProgression) =>
+          handleRegenerateTrackSection(trackId, sectionId, prompt, syncWithProgression)
+        }
+      />
+
+      {/* Progression Rhythm & Accompaniment Assistant Dialog */}
+      <ProgressionRhythmDialog
+        open={isRhythmAssistantOpen}
+        onOpenChange={setIsRhythmAssistantOpen}
+        activeSong={activeSong}
+        playbackMode={playbackMode}
+        setPlaybackMode={setPlaybackMode}
+        selectedRhythmPattern={selectedRhythmPattern}
+        setSelectedRhythmPattern={setSelectedRhythmPattern}
+        selectedArpeggioPattern={selectedArpeggioPattern}
+        setSelectedArpeggioPattern={setSelectedArpeggioPattern}
+        onGenerateAiRhythm={handleGenerateAiRhythm}
+        isGeneratingAiRhythm={isGeneratingRhythm}
+        defaultSectionId={rhythmAssistantSectionId}
       />
     </div>
   );
