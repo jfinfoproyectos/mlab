@@ -246,289 +246,10 @@ Completa entre 3 y 8 secciones lógicas.`;
       };
     }
   } catch (error: any) {
-    console.warn("Error generating song blueprint via AI. Activating premium offline fallback...", error);
-    
-    const lowerPrompt = validated.prompt.toLowerCase();
-    let title = validated.prompt.trim().substring(0, 25) || "Nueva Composición (Offline)";
-    let genre = "Pop Moderno";
-    let key = validated.key && validated.key !== "Automático" ? validated.key : "C Minor";
-    let tempo = validated.tempo && validated.tempo !== "Automático" ? parseInt(validated.tempo, 10) || 80 : 80;
-    let description = "Diseño estructural dinámico de contingencia compuesto offline debido a API Key inalcanzable.";
-    let sections: any[] = [];
-
-    if (lowerPrompt.includes("urbano") || lowerPrompt.includes("reggaeton") || lowerPrompt.includes("dembow")) {
-      title = title || "Ritmo y Fuego";
-      genre = "Urbano Latino";
-      sections = [
-        {
-          type: "Intro",
-          prompt: "Entrada etérea con filtro de paso bajo y tensión armónica suave.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 2
-        },
-        {
-          type: "Coro 1",
-          prompt: "Clímax bailable con dembow completo y tensiones armónicas brillantes.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 4
-        },
-        {
-          type: "Verso 1",
-          prompt: "Línea de bajo sólida y espacio amplio para la voz rítmica.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 4
-        },
-        {
-          type: "Coro 2",
-          prompt: "Repetición del coro principal para fijar el gancho armónico.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 4,
-          reusedFrom: "Coro 1"
-        },
-        {
-          type: "Verso 2",
-          prompt: "Variación con ligera variación de bajo y arreglos.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 4,
-          variationOf: "Verso 1"
-        },
-        {
-          type: "Coro 3",
-          prompt: "Repetición final del coro principal.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 4,
-          reusedFrom: "Coro 1"
-        },
-        {
-          type: "Outro",
-          prompt: "Desvanecimiento del ritmo y acordes sostenidos de despedida.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 2
-        }
-      ];
-    } else if (lowerPrompt.includes("triste") || lowerPrompt.includes("melancolic") || lowerPrompt.includes("menor") || key.toLowerCase().includes("minor")) {
-      title = title || "Susurros del Pasado";
-      genre = "Neo-Soul / Lo-Fi";
-      sections = [
-        {
-          type: "Intro",
-          prompt: "Textura inicial suspendida de 2 acordes para establecer la tónica menor.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 2
-        },
-        {
-          type: "Verso 1",
-          prompt: "Armonía menor estable y suave con acordes menores de séptima y novena.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 4
-        },
-        {
-          type: "Coro 1",
-          prompt: "Clímax emotivo brillante con acordes mayores de novena y tensiones de color.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 4
-        },
-        {
-          type: "Verso 2",
-          prompt: "Variación de Verso 1 con tensiones añadidas para más dinamismo.",
-          key: key,
-          scale: "Menor Natural",
-          chordCount: 4,
-          variationOf: "Verso 1"
-        },
-        {
-          type: "Coro 2",
-          prompt: "Repetición exacta del coro principal.",
-          key: key,
-          scale: "Dórico",
-          chordCount: 4,
-          reusedFrom: "Coro 1"
-        },
-        {
-          type: "Puente",
-          prompt: "Tensión dramática máxima antes de la resolución final.",
-          key: key,
-          scale: "Lidia",
-          chordCount: 4
-        },
-        {
-          type: "Outro",
-          prompt: "Disipación armónica con acordes abiertos y un acorde de resolución suspendido.",
-          key: key,
-          scale: "Menor Melódica",
-          chordCount: 2
-        }
-      ];
-    } else {
-      title = title || "Sueño Dorado";
-      genre = "Pop Moderno";
-      sections = [
-        {
-          type: "Intro",
-          prompt: "Entrada brillante de 2 acordes mayores extendidos para invitar al oyente.",
-          key: key,
-          scale: "Mayor / Jónica",
-          chordCount: 2
-        },
-        {
-          type: "Verso 1",
-          prompt: "Progresión pop arpegiada estable y dulce que apoya la melodía inicial.",
-          key: key,
-          scale: "Mayor / Jónica",
-          chordCount: 4
-        },
-        {
-          type: "Coro 1",
-          prompt: "Poderosa modulación armónica ascendente con máxima energía y acordes llenos.",
-          key: key,
-          scale: "Lidia",
-          chordCount: 4
-        },
-        {
-          type: "Verso 2",
-          prompt: "Repetición del Verso 1.",
-          key: key,
-          scale: "Mayor / Jónica",
-          chordCount: 4,
-          reusedFrom: "Verso 1"
-        },
-        {
-          type: "Coro 2",
-          prompt: "Repetición del Coro 1.",
-          key: key,
-          scale: "Lidia",
-          chordCount: 4,
-          reusedFrom: "Coro 1"
-        },
-        {
-          type: "Puente",
-          prompt: "Sección contrastante y lírica.",
-          key: key,
-          scale: "Mixolidia",
-          chordCount: 4
-        },
-        {
-          type: "Coro 3",
-          prompt: "Clímax de coro final.",
-          key: key,
-          scale: "Lidia",
-          chordCount: 4,
-          reusedFrom: "Coro 1"
-        },
-        {
-          type: "Outro",
-          prompt: "Resolución placentera de regreso a la tónica con un suave decrescendo.",
-          key: key,
-          scale: "Mayor / Jónica",
-          chordCount: 2
-        }
-      ];
-    }
-
-    // Overwrite fields in the offline fallback sections based on user controls
-    let adjustedSections = sections;
-    
-    // 1. Overwrite structureMode offline
-    if (validated.structureMode && validated.structureMode !== "Automático") {
-      if (validated.structureMode === "3-sections") {
-        const intro = sections.find(s => s.type.toLowerCase().includes("intro")) || sections[0];
-        const coro = sections.find(s => s.type.toLowerCase().includes("coro")) || sections[1] || sections[0];
-        const outro = sections.find(s => s.type.toLowerCase().includes("outro")) || sections[sections.length - 1];
-        adjustedSections = [
-          { ...intro, type: "Intro" },
-          { ...coro, type: "Coro" },
-          { ...outro, type: "Outro" }
-        ];
-      } else if (validated.structureMode === "4-sections") {
-        const intro = sections.find(s => s.type.toLowerCase().includes("intro")) || sections[0];
-        const verso = sections.find(s => s.type.toLowerCase().includes("verso")) || sections[1] || sections[0];
-        const coro = sections.find(s => s.type.toLowerCase().includes("coro")) || sections[2] || sections[0];
-        const outro = sections.find(s => s.type.toLowerCase().includes("outro")) || sections[sections.length - 1];
-        adjustedSections = [
-          { ...intro, type: "Intro" },
-          { ...verso, type: "Verso" },
-          { ...coro, type: "Coro" },
-          { ...outro, type: "Outro" }
-        ];
-      } else if (validated.structureMode === "6-sections") {
-        adjustedSections = sections.slice(0, 6);
-        while (adjustedSections.length < 6) {
-          adjustedSections.push({
-            type: `Sección ${adjustedSections.length + 1}`,
-            prompt: "Variación musical complementaria.",
-            key: key,
-            scale: "Mayor / Jónica",
-            chordCount: 4
-          });
-        }
-      } else if (validated.structureMode === "8-sections") {
-        adjustedSections = sections.slice(0, 8);
-        while (adjustedSections.length < 8) {
-          adjustedSections.push({
-            type: `Sección ${adjustedSections.length + 1}`,
-            prompt: "Sección final de resolución.",
-            key: key,
-            scale: "Mayor / Jónica",
-            chordCount: 4
-          });
-        }
-      }
-    }
-
-    // 2. Overwrite chordsMode offline
-    if (validated.chordsMode && validated.chordsMode !== "Automático") {
-      const parsedCount = parseInt(validated.chordsMode, 10) || 4;
-      adjustedSections = adjustedSections.map(s => ({
-        ...s,
-        chordCount: parsedCount
-      }));
-    }
-
-    // 3. Overwrite repetitionMode offline
-    if (validated.repetitionMode && validated.repetitionMode !== "Automático") {
-      if (validated.repetitionMode === "none") {
-        adjustedSections = adjustedSections.map(s => {
-          const { reusedFrom, variationOf, ...rest } = s as any;
-          return rest;
-        });
-      } else if (validated.repetitionMode === "force-exact") {
-        const seenTypes = new Set<string>();
-        adjustedSections = adjustedSections.map(s => {
-          const baseType = s.type.replace(/\s+\d+$/, "");
-          if (seenTypes.has(baseType)) {
-            const first = adjustedSections.find(x => x.type.replace(/\s+\d+$/, "") === baseType);
-            return {
-              ...s,
-              reusedFrom: first ? first.type : undefined,
-              variationOf: undefined
-            };
-          }
-          seenTypes.add(baseType);
-          return s;
-        });
-      }
-    }
-
+    console.error("Error generating song blueprint via AI:", error);
     return {
-      success: true,
-      data: {
-        title,
-        genre,
-        key,
-        tempo,
-        description,
-        sections
-      }
+      success: false,
+      error: error.message || "Failed to generate song blueprint via AI.",
     };
   }
 }
@@ -740,82 +461,6 @@ export async function generateSectionTrackAction(params: {
 
   console.log(`[AI Multitrack] Generating track "${trackName}" for section "${sectionType}" (${songTitle})`);
 
-  // Local musical fallback generator for offline resiliency or key errors
-  const runMusicalFallback = (): SongSectionTrack => {
-    const isBass = trackName.toLowerCase().includes("bajo") || trackName.toLowerCase().includes("bass");
-    const isDrums = midiChannel === 10 || trackName.toLowerCase().includes("bateria") || trackName.toLowerCase().includes("drum");
-    const notes: SongTrackNote[] = [];
-
-    chordsList.forEach((c, idx) => {
-      const chordStartBeat = idx * 4;
-      const notesInChord = c.pianoNotes && c.pianoNotes.length > 0 ? c.pianoNotes : ["C4"];
-      const baseNote = notesInChord[0]; // e.g. "C3" or "Eb4"
-
-      // Parse pitch and octave
-      const match = baseNote.match(/^([A-G][#b]?)([0-9])$/i);
-      const pitch = match ? match[1] : "C";
-      const octave = match ? parseInt(match[2], 10) : 4;
-
-      if (isDrums) {
-        // Standard General MIDI Drum Kit pattern:
-        // - C2 (Pitch 36) = Acoustic Bass Drum (Kick)
-        // - D2 (Pitch 38) = Acoustic Snare
-        // - F#2 (Pitch 42) = Closed Hi-Hat
-        
-        // Bombo/Kick on beat 0.0 and 2.0 of each chord
-        // Caja/Snare on beat 1.0 and 3.0 of each chord
-        // Hi-Hat on every 0.5 beat (8 hi-hats per chord)
-        notes.push({ note: "C2", startBeat: chordStartBeat + 0.0, durationBeats: 0.5, velocity: 0.95 });
-        notes.push({ note: "D2", startBeat: chordStartBeat + 1.0, durationBeats: 0.5, velocity: 0.9 });
-        notes.push({ note: "C2", startBeat: chordStartBeat + 2.0, durationBeats: 0.5, velocity: 0.92 });
-        notes.push({ note: "D2", startBeat: chordStartBeat + 3.0, durationBeats: 0.5, velocity: 0.9 });
-        
-        for (let step = 0; step < 8; step++) {
-          notes.push({ note: "F#2", startBeat: chordStartBeat + (step * 0.5), durationBeats: 0.25, velocity: 0.7 });
-        }
-      } else if (isBass) {
-        // Funky syncopated rhythmic bassline: Fundamental at 0.0, 5th at 1.5, Octave at 2.5
-        const bassOctave = Math.max(1, octave - 1); // Bass octave should be lower
-        const rootBass = `${pitch}${bassOctave}`;
-        
-        // Find 5th note dynamically (or fallback)
-        let fifthPitch = "G";
-        const keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        const rootIdx = keys.indexOf(pitch.toUpperCase());
-        if (rootIdx !== -1) {
-          fifthPitch = keys[(rootIdx + 7) % 12];
-        }
-        const fifthBass = `${fifthPitch}${bassOctave}`;
-
-        notes.push({ note: rootBass, startBeat: chordStartBeat + 0.0, durationBeats: 1.0, velocity: 0.95 });
-        notes.push({ note: fifthBass, startBeat: chordStartBeat + 1.5, durationBeats: 0.5, velocity: 0.85 });
-        notes.push({ note: rootBass, startBeat: chordStartBeat + 2.0, durationBeats: 1.0, velocity: 0.9 });
-        notes.push({ note: fifthBass, startBeat: chordStartBeat + 3.5, durationBeats: 0.5, velocity: 0.8 });
-      } else {
-        // Singable flowing arpeggiated lead/melody tracing the chord tones
-        const melodyOctave = Math.max(3, octave);
-        const rootMelody = `${pitch}${melodyOctave}`;
-
-        // Find 3rd and 5th chord tones
-        const t3 = notesInChord[1] || rootMelody;
-        const t5 = notesInChord[2] || rootMelody;
-
-        notes.push({ note: rootMelody, startBeat: chordStartBeat + 0.0, durationBeats: 1.0, velocity: 0.85 });
-        notes.push({ note: t3, startBeat: chordStartBeat + 1.0, durationBeats: 1.0, velocity: 0.8 });
-        notes.push({ note: t5, startBeat: chordStartBeat + 2.0, durationBeats: 1.5, velocity: 0.85 });
-      }
-    });
-
-    return {
-      id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: trackName,
-      midiChannel: midiChannel,
-      instrumentPreset: isDrums ? "drum-kit" : (isBass ? "8bit-synth" : "grand-piano"),
-      notes,
-      prompt: userPrompt || "Local Musical Fallback",
-      volume: 0.7
-    };
-  };
 
   try {
     const provider = await getActiveAiProvider();
@@ -877,12 +522,9 @@ REGLAS UNIVERSALES DE TEORÍA QUE SIEMPRE DEBES APLICAR:
 TÉCNICAS ESPECÍFICAS HABILITADAS:
 ${activeTechniques}
 
-⚠️ RECORDATORIO CRÍTICO — INCLUSO CON TEORÍA AVANZADA ACTIVADA:
-Las pianoNotes del acorde activo siguen siendo la base irrenunciable. Las técnicas anteriores son ADORNOS sobre esa base, NO un reemplazo. En cada compás:
-- Mínimo 60-70% de las notas deben ser chord tones (pianoNotes del acorde activo).
-- Máximo 30-40% pueden ser notas de adorno/paso/extensión.
-- Los tiempos fuertes (0.0, 1.0, 2.0, 3.0) SIEMPRE deben tener una nota del acorde.
-- Al cambiar de acorde, la primera nota DEBE ser del nuevo acorde.
+⚠️ RECORDATORIO CRÍTICO DE ROLES MUSICALES:
+Las reglas de mantener las pianoNotes (chord tones) en los tiempos fuertes APLICAN ÚNICAMENTE a los instrumentos rítmicos y bajos (Ritmo, Pads, Bajos).
+Si estás generando una MELODÍA o un SOLO, IGNORA ESTO. Tienes LIBERTAD CREATIVA para tocar cualquier nota de la escala en cualquier tiempo, usar notas de paso, etc. Las melodías NO DEBEN ser simples arpegios.
 
 INSTRUCCIÓN FINAL: La pista resultante debe sonar como la tocara un músico profesional de sesión con pleno dominio de la teoría musical. El resultado debe ser expresivo, rítmicamente interesante y armónicamente rico, integrando las técnicas anteriores de forma natural y musical, no mecánica. Pero siempre respetando la progresión armónica como columna vertebral.`;
     }
@@ -921,26 +563,32 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
     Debes componer y distribuir notas para la totalidad de la progresión. Específicamente, debes asegurarte de colocar notas en el rango de tiempo de cada acorde. No dejes acordes vacíos sin melodía:
     ${chordCoverageInstructions}
 
-    ⚠️ REGLA FUNDAMENTAL — FIDELIDAD OBLIGATORIA A LOS ACORDES DE LA PROGRESIÓN (PRIORIDAD MÁXIMA):
-    Las notas del acorde activo (chord tones / pianoNotes listadas para cada acorde) son SIEMPRE la base armónica obligatoria de todo lo que generes. Esto aplica a TODAS las pistas sin excepción:
-    - En CADA compás (intervalo de 4 tiempos de un acorde), AL MENOS el 60-70% de las notas generadas DEBEN ser notas que pertenezcan al acorde activo (las pianoNotes listadas para ese acorde en la progresión).
-    - En los tiempos fuertes (0.0, 1.0, 2.0, 3.0 de cada compás) SIEMPRE debe sonar una nota del acorde activo.
-    - Las notas de adorno, paso, cromáticas o extensiones (si están habilitadas) SOLO pueden aparecer en tiempos débiles (0.25, 0.5, 0.75, 1.25, 1.5, etc.) y deben resolver inmediatamente a una nota del acorde activo.
-    - NUNCA generes un compás entero con notas que no pertenezcan al acorde activo. Eso sonaría disonante y fuera de la tonalidad.
-    - Al cambiar de acorde (ej. del tiempo 4.0 al siguiente), la primera nota DEBE ser una nota del nuevo acorde activo.
+    ⚠️ DIRECTRICES ARMÓNICAS OBLIGATORIAS SEGÚN EL ROL DE LA PISTA:
+    El comportamiento armónico DEBE cambiar drásticamente según qué instrumento estés tocando:
+    1. Si eres BAJO (Bassline): Toca solo fundamentales y quintas en tiempos fuertes.
+    2. Si eres RITMO o ACORDES (Piano, Pads, Guitarra Rítmica): Mantén una adherencia estricta a las notas del acorde (pianoNotes) en un 80%.
+    3. Si eres MELODÍA, VOZ, LEAD, SOLO o CUALQUIER INSTRUMENTO SOLISTA:
+       >>> ¡CREA MELODÍAS MÁGICAS, INSPIRADORAS Y PROFUNDAMENTE HUMANAS! <<<
+       Tus notas NO deben ser un simple arpegio predecible. ESTÁ ESTRICTAMENTE PROHIBIDO limitarte solo a las notas del acorde. DEBES usar la escala completa (${sectionScale} de ${sectionKey}) para tejer una historia musical. Incorpora tensiones que generen emoción (9nas, 11nas, 13ras), notas de paso diatónicas y cromatismos para acercarte a tus notas objetivo. ¡Queremos pura magia musical generada por IA, que emocione a quien la escuche!
 
     REGLAS DE ARMONIZACIÓN Y DIRECCIÓN MUSICAL:
     1. Las notas generadas DEBEN empezar dentro de los tiempos de la sección (desde 0.0 hasta ${totalBeats}.0).
     2. Debes adaptar la dirección y vibe del prompt del usuario: "${userPrompt}".
     3. COBERTURA COMPLETA Y OBLIGATORIA DE TODOS LOS ACORDES (CRÍTICO): Debes componer notas que abarquen y cubran la SECCIÓN COMPLETA y todos los acordes de la progresión, desde el tiempo 0.0 hasta el tiempo ${totalBeats}.0. La melodía o patrón rítmico NO debe detenerse tras el primer o segundo acorde. Debe continuar desarrollándose de forma fluida y constante a lo largo de todos los compases y acordes de la sección entera (por ejemplo, tocando sobre el tiempo 0..4, el tiempo 4..8, el tiempo 8..12, y el tiempo 12..16). EXCEPCIÓN: La única excepción a esta regla es si el prompt de usuario ("${userPrompt}") indica explícitamente limitar la melodía a una parte específica.
     4. Para pistas de BAJO (Bassline): Enfócate estrictamente en las fundamentales (roots) y quintas (5ths) de cada acorde activo. Coloca la tónica en el tiempo fuerte del acorde (ej. tiempo 0.0, 4.0, 8.0, 12.0) y la quinta o paso de aproximación cromática/diatónica en los contratiempos (ej. 2.0, 3.0, 3.5) para conducir al siguiente acorde de forma fluida (aplicando walking bass o patrones rítmicos estables).
-    5. Para pistas de VOZ / SOLISTAS / LÍDERES (Melody): Aplica teoría musical avanzada para la creación de frases:
-       - NOTAS EN TIEMPOS FUERTES (Downbeats): En el inicio de los compases y tiempos fuertes (tiempos 0.0, 2.0), prioriza notas del acorde activo (chord tones: 3ra para definir el color mayor/menor, tónica, 5ta o 7ma).
-       - NOTAS EN TIEMPOS DÉBILES (Upbeats): Utiliza las extensiones de la escala (${sectionScale}) en la tonalidad (${sectionKey}), como la 9na, 11na, 13ra, notas de paso (passing tones) o notas de adorno (neighboring tones) en los contratiempos y fracciones (ej. 0.5, 1.5, 2.5, 3.5).
-       - CONDUCCIÓN DE VOCES (Voice Leading): Al transicionar entre acordes, la melodía debe resolver por paso conjunto (distancia de un semitono o un tono) hacia una nota estable del nuevo acorde. Evita saltos de intervalo de más de una quinta justa (7 semitonos) a menos que se pida expresamente una tensión o salto dramático.
-       - RESOLUCIÓN DE TENSIONES: Las notas de tensión melódica deben resolver de forma diatónica (ej. la sensible o 7ma mayor debe resolver subiendo a la tónica; la oncena o 4ta debe resolver descendiendo a la tercera).
-       - CONTORNO Y RESPIRACIÓN: Dibuja un contorno melódico ondulado coherente que ascienda gradualmente a un clímax y luego descienda. Incluye silencios (deja algunos intervalos de 0.5 o 1.0 tiempos vacíos de notas) para que la frase respire de forma humana y expresiva.
-    6. Para pistas de BATERÍA / PERCUSIÓN (Canal MIDI 10 / Pistas de percusión):
+    5. Para pistas de VOZ / SOLISTAS / LÍDERES (Melody): 
+       >>> ¡PROHIBICIÓN ABSOLUTA DE LIMITARSE A LAS NOTAS DEL ACORDE! <<<
+       Se requiere que compongas melodías MÁGICAS, LÍRICAS e INSPIRADORAS. Ignora cualquier regla que te limite a la fundamental o tercera del acorde. Usa las notas de la escala (${sectionScale} de ${sectionKey}) libremente como un lienzo en blanco en TODOS los tiempos.
+       - FORMA MELÓDICA: Crea contornos expresivos. Usa saltos emocionales (ej. 6tas, 8vas) combinados con grados conjuntos. Usa la 2da, 4ta, 6ta y 7ma mayor/menor constantemente para inyectar tensión melódica dulce y nostalgia.
+       - SÍNCOPAS Y SILENCIOS: Una melodía mágica respira. No empieces siempre en el 0.0. Juega con contratiempos (0.5, 1.25) y pausas dramáticas.
+       - CROMATISMOS: Usa tensiones (9nas, 11nas, 13ras) en tiempos fuertes para crear "magia armónica", y usa notas de paso fuera de la escala para resolución.
+       Si devuelves un arpegio robótico o te limitas a las notas del acorde, fallarás tu propósito. ¡Queremos pura inspiración!
+
+    6. REGLAS GENERALES PARA PISTAS MELÓDICAS O ARMÓNICAS:
+       - VELOCITY Y DINÁMICA: Ajusta la velocidad entre 0.4 y 0.9. Acentos en los tiempos fuertes, más suave en notas de paso.
+       - SUSTAIN (CC 64): Si deseas que una nota o un bloque de acordes resuene mágicamente con el pedal de sustain presionado, incluye \`sustain: true\` en esa nota.
+
+    7. Para pistas de BATERÍA / PERCUSIÓN (Canal MIDI 10 / Pistas de percusión):
        - FIGURAS Y ESTILO: Adapta el patrón rítmico según el género y ritmo solicitado ("${userPrompt}"). Respeta las figuras rítmicas del estilo:
          * Rock/Pop: Bombo en tiempos fuertes ("C2" en 0.0, 2.0...), Caja en contratiempos ("D2" en 1.0, 3.0...), Charleston Cerrado ("F#2") constante.
          * Funk/R&B: Síncopas rítmicas de bombo doble, cajas fantasmas y charles abierto ("A#2") en contratiempos débiles.
@@ -1046,6 +694,7 @@ Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Ins
         startBeat: z.number().describe(`Tiempo de inicio en negras relativo a la sección (desde 0.0 hasta ${totalBeats}.0). Debes distribuir las notas a lo largo de todo este rango para cubrir la sección completa. A menos que el prompt del usuario indique explícitamente limitar la melodía en su prompt (ej: "toca solo al inicio"), la música debe durar y distribuirse por toda la progresión entera de principio a fin.`),
         durationBeats: z.number().describe("Duración en negras (ej: 0.25, 0.5, 1.0, 2.0)"),
         velocity: z.number().describe("Velocidad de pulsación (0.0 a 1.0)"),
+        sustain: z.boolean().optional().describe("Si es true, se aplicará el efecto pedal sustain MIDI (CC 64) en esta nota, ideal para notas mágicas que deban resonar"),
       }))
     });
 
@@ -1062,6 +711,7 @@ Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Ins
         startBeat: Number(n.startBeat),
         durationBeats: Number(n.durationBeats),
         velocity: Math.min(1.0, Math.max(0.0, Number(n.velocity))),
+        sustain: Boolean(n.sustain)
       }));
 
       const isBass = trackName.toLowerCase().includes("bajo") || trackName.toLowerCase().includes("bass");
@@ -1082,19 +732,25 @@ Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Ins
 
     throw new Error("Formato de respuesta de IA inválido");
   } catch (error: any) {
-    console.warn("generateSectionTrackAction falló, usando fallback musical offline de alta calidad:", error);
-    try {
-      const fallbackTrack = runMusicalFallback();
-      return {
-        success: true,
-        data: fallbackTrack
-      };
-    } catch (fallbackError: any) {
-      return {
-        success: false,
-        error: `Fallo al generar pista: ${fallbackError.message || fallbackError}`
-      };
+    console.error("Error generating section track via AI:", error);
+    // Extract actual error string to avoid Next.js serialization errors
+    let errorMessage = "Failed to generate section track via AI.";
+    if (error?.message) {
+      errorMessage = String(error.message);
+    } else if (typeof error === 'object' && error !== null) {
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch (e) {
+        errorMessage = "Unknown AI generation error (unserializable)";
+      }
+    } else if (typeof error === 'string') {
+      errorMessage = error;
     }
+    
+    return {
+      success: false,
+      error: errorMessage,
+    };
   }
 }
 
@@ -1111,61 +767,7 @@ export async function refineSongWithAiAction(
   data?: SongStructure;
   error?: string;
 }> {
-  // Offline fallback helper
-  const runOfflineRefinement = (song: SongStructure, instruction: string) => {
-    const updated = JSON.parse(JSON.stringify(song)) as SongStructure;
-    const instrLower = instruction.toLowerCase();
-    let explanation = "Refinamiento offline aplicado: ";
-    let changes: string[] = [];
 
-    // Title match
-    const titleMatch = instruction.match(/(?:título|titulo|llamar|llama|nombre)\s+["'«“]([^"'»”]+)["'»”]/i) ||
-                       instruction.match(/(?:título|titulo|llamar|llama|nombre)\s+(?:a|como)?\s+([A-Za-z0-9\sÁéíóúáÉÍÓÚñÑ]+)/i);
-    if (titleMatch) {
-      const newTitle = titleMatch[1].trim();
-      updated.title = newTitle;
-      changes.push(`Título cambiado a "${newTitle}"`);
-    }
-
-    // BPM match
-    const bpmValueMatch = instrLower.match(/(\d+)\s*(?:bpm|tempo)/) || instrLower.match(/(?:bpm|tempo)\s*(?:de|a)?\s*(\d+)/);
-    if (bpmValueMatch) {
-      const targetBpm = parseInt(bpmValueMatch[1], 10);
-      if (targetBpm >= 40 && targetBpm <= 240) {
-        updated.tempo = targetBpm;
-        changes.push(`Tempo establecido a ${targetBpm} BPM`);
-      }
-    } else {
-      const bpmAdjustMatch = instrLower.match(/(?:sube|aumenta|más rápido|mas rapido)\s*(\d+)?/) || instrLower.match(/(?:subir|aumentar)\s*(\d+)?/);
-      const bpmReduceMatch = instrLower.match(/(?:baja|reduce|más lento|mas lento)\s*(\d+)?/) || instrLower.match(/(?:bajar|reducir)\s*(\d+)?/);
-      if (bpmAdjustMatch) {
-        const amount = parseInt(bpmAdjustMatch[1], 10) || 10;
-        updated.tempo = Math.min(240, (updated.tempo || 80) + amount);
-        changes.push(`Tempo incrementado por ${amount} BPM a ${updated.tempo} BPM`);
-      } else if (bpmReduceMatch) {
-        const amount = parseInt(bpmReduceMatch[1], 10) || 10;
-        updated.tempo = Math.max(40, (updated.tempo || 80) - amount);
-        changes.push(`Tempo reducido por ${amount} BPM a ${updated.tempo} BPM`);
-      }
-    }
-
-    // Genre/Mood match
-    if (instrLower.includes("triste") || instrLower.includes("melancólico") || instrLower.includes("melancolico") || instrLower.includes("menor")) {
-      updated.genre = updated.genre || "Pop";
-      if (!updated.genre.toLowerCase().includes("triste") && !updated.genre.toLowerCase().includes("melancólico")) {
-        updated.genre = `${updated.genre} Melancólico`;
-      }
-      changes.push("Modificado el carácter armónico a acordes menores tristes");
-    }
-
-    if (changes.length > 0) {
-      explanation += changes.join(", ") + ".";
-    } else {
-      explanation += "No pudimos interpretar una instrucción específica offline. Intenta frases simples como 'sube el tempo 15 bpm' o 'cambia el título a Sol Naciente'.";
-    }
-
-    return { explanation, updatedSong: updated };
-  };
 
   try {
     const provider = await getActiveAiProvider();
@@ -1265,19 +867,10 @@ export async function refineSongWithAiAction(
 
     throw new Error("Formato de refinamiento inválido");
   } catch (error: any) {
-    console.warn("refineSongWithAiAction falló, ejecutando fallback offline:", error);
-    try {
-      const fallbackResult = runOfflineRefinement(currentSong, userInstruction);
-      return {
-        success: true,
-        explanation: fallbackResult.explanation,
-        data: fallbackResult.updatedSong,
-      };
-    } catch (fallbackError: any) {
-      return {
-        success: false,
-        error: `Fallo al refinar canción: ${fallbackError.message || fallbackError}`,
-      };
-    }
+    console.error("Error refining song via AI:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to refine song via AI.",
+    };
   }
 }

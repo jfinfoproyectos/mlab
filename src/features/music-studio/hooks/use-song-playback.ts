@@ -529,7 +529,8 @@ export function useSongPlayback(
     velocity: number = 1.0,
     midiChannelNum: number = 1,
     instrumentPreset: string = "grand-piano",
-    startTimeMs?: number
+    startTimeMs?: number,
+    sustain: boolean = false
   ) => {
     try {
       const freq = noteToFreq(noteName);
@@ -546,8 +547,15 @@ export function useSongPlayback(
           const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
 
           const start = startTimeMs !== undefined ? startTimeMs : performance.now();
+          
+          if (sustain) {
+            out.send([0xB0 | channelIdx, 64, 127], start); // Sustain Pedal ON
+          }
           out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On (Hardware Precise)
           out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off (Hardware Precise)
+          if (sustain) {
+            out.send([0xB0 | channelIdx, 64, 0], start + durationMs); // Sustain Pedal OFF
+          }
 
           const delay = start - performance.now();
           const visualTimeout = setTimeout(() => {
@@ -1841,7 +1849,8 @@ export function useSongPlayback(
                     noteObj.velocity * trackVolume,
                     track.midiChannel,
                     "grand-piano",
-                    startTimeMs + startDelayMs
+                    startTimeMs + startDelayMs,
+                    noteObj.sustain
                   );
                 }
               });
@@ -1873,7 +1882,8 @@ export function useSongPlayback(
                     noteObj.velocity * trackVolume,
                     track.midiChannel,
                     track.instrumentPreset || "grand-piano",
-                    startTimeMs + startDelayMs
+                    startTimeMs + startDelayMs,
+                    noteObj.sustain
                   );
                 }
               });

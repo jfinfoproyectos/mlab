@@ -48,6 +48,7 @@ export const songTrackNoteSchema = z.object({
   startBeat: z.number().describe("Tiempo de inicio en negras relativo a la sección (0.0 a 16.0)"),
   durationBeats: z.number().describe("Duración de la nota en negras (ej: 0.5, 1.0, 2.0)"),
   velocity: z.number().min(0.0).max(1.0).describe("Velocidad o volumen de la nota (0.0 a 1.0)"),
+  sustain: z.boolean().optional().describe("Si es true, se aplicará el efecto pedal sustain MIDI (CC 64)"),
 });
 
 export type SongTrackNote = z.infer<typeof songTrackNoteSchema>;

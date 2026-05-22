@@ -85,6 +85,8 @@ import { ArrangementTimeline } from "./arrangement-timeline";
 import { SectionChordEditor } from "./section-chord-editor";
 import { PianoRoll } from "./piano-roll";
 import { AiConfigForm } from "./ai-config-form";
+import { AiProgressProvider, useAiProgress } from "../hooks/use-ai-progress";
+import { AiProgressIndicator } from "./ai-progress-indicator";
 
 import { useSongPlayback } from "../hooks/use-song-playback";
 import { TrackComposerDialog } from "./TrackComposerDialog";
@@ -151,7 +153,7 @@ interface SongGeneratorProps {
   initialConfigs?: any[];
 }
 
-export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
+export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
@@ -164,6 +166,24 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [activeSong, setActiveSong] = useState<SongStructure | null>(null);
   const activeSongRef = useRef<SongStructure | null>(null);
+  
+  // Interactive Confirmation State for AI failures
+  const [confirmPrompt, setConfirmPrompt] = useState<{
+    message: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null>(null);
+
+  const promptConfirm = async (message: string): Promise<boolean> => {
+    return new Promise<boolean>((resolve) => {
+      setConfirmPrompt({
+        message,
+        onConfirm: () => { setConfirmPrompt(null); resolve(true); },
+        onCancel: () => { setConfirmPrompt(null); resolve(false); }
+      });
+    });
+  };
+
   useEffect(() => {
     activeSongRef.current = activeSong;
   }, [activeSong]);
@@ -249,6 +269,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     setIsChatSending(true);
 
     const signal = startAiProcess("chat-refinement", "Refinando arreglo con asistente IA");
+    startTask("Refinando arreglo con asistente IA...");
     if (!signal) {
       setIsChatSending(false);
       return;
@@ -393,7 +414,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
             timestamp: new Date() 
           },
         ]);
-        toast.success("¡Canción refinada con éxito!");
+        toast.success("¡Canción generada completamente!");
       } else {
         toast.error(result.error || "No se pudo refinar la canción.");
         setChatMessages((prev) => [
@@ -422,18 +443,32 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     } finally {
       setIsChatSending(false);
       setAiProcess(prev => prev?.id === "chat-refinement" ? null : prev);
+      endTask();
     }
   };
 
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   // Helper to automatically background-save song changes to DB
-  const saveSongBackground = useCallback(async (updatedSong: SongStructure) => {
-    if (!updatedSong.id) return;
-    try {
-      await saveSongAction(updatedSong);
-    } catch (e) {
-      console.warn("Background auto-save failed:", e);
-    }
+  const saveSongBackground = useCallback((updatedSong: SongStructure) => {
+    if (!updatedSong.id) return Promise.resolve();
+    
+    return new Promise<void>((resolve) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          await saveSongAction(updatedSong);
+          resolve();
+        } catch (e) {
+          console.warn("Background auto-save failed:", e);
+          resolve();
+        }
+      }, 1500); // Debounce for 1.5 seconds to prevent spamming DB on every slider tick
+    });
   }, []);
 
 
@@ -550,6 +585,24 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
   const [isRhythmAssistantOpen, setIsRhythmAssistantOpen] = useState(false);
   const [rhythmAssistantSectionId, setRhythmAssistantSectionId] = useState<string | null>(null);
   const [isGeneratingRhythm, setIsGeneratingRhythm] = useState(false);
+  const { startTask, updateTaskName, endTask, setModelInfo, setOnCancel } = useAiProgress();
+
+  useEffect(() => {
+    const activeConfig = initialConfigs?.find((c: any) => c.isActive) || initialConfigs?.[0];
+    if (activeConfig) {
+      setModelInfo({
+        provider: activeConfig.provider,
+        modelId: activeConfig.modelId || "Auto"
+      });
+    }
+  }, [initialConfigs, setModelInfo]);
+
+  useEffect(() => {
+    setOnCancel(() => (aiProcess ? () => cancelAiProcess() : null));
+    if (!aiProcess) {
+      endTask();
+    }
+  }, [aiProcess, cancelAiProcess, setOnCancel, endTask]);
 
   const handleGenerateAiRhythm = async (
     prompt: string, 
@@ -569,7 +622,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
       const toastId = toast.loading(
         `Generando polifonía IA (${selectedVoices.length} voces) para ${sectionIds.length} sección(es)...`
       );
-
+      startTask("Procesando comando de IA para la canción...");
       try {
         // Deep clone song for immutable update
         const newSong = {
@@ -599,65 +652,71 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           newSong.tracks.unshift(rhythmTrack);
         }
 
-        // Generate voices section by section in parallel
-        const polyphonicPromises = sectionIds.map(async (sectionId) => {
+        // Generate voices section by section sequentially with resume
+        for (const sectionId of sectionIds) {
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
           const section = targetSong.sections.find(s => s.id === sectionId);
-          if (!section || !section.chords?.chords) return null;
+          if (!section || !section.chords?.chords) continue;
+          updateTaskName(`Componiendo patrón rítmico polifónico para: ${section.type}`);
 
-          const chordsList = section.chords.chords.map(c => ({
-            chord: c.chord,
-            pianoNotes: c.pianoNotes || [],
-            role: c.role || "Tónica"
-          }));
-
-          const result = await generatePolyphonicRhythmAction({
-            prompt,
-            songTitle: targetSong.title || "Mi Canción",
-            sectionType: section.type,
-            sectionKey: section.key || targetSong.key || "C",
-            sectionScale: section.scale || "major",
-            chordsList,
-            selectedVoices,
-            rhythmicDensity,
-            tempo: targetSong.tempo || 90,
-          });
-          
-          return { sectionId, result, sectionType: section.type };
-        });
-
-        const polyResults = await Promise.all(polyphonicPromises);
-        if (signal.aborted) { toast.dismiss(toastId); throw new DOMException("Aborted", "AbortError"); }
-
-        for (const poly of polyResults) {
-          if (!poly) continue;
-          const { sectionId, result, sectionType } = poly;
-          if (result.success && result.voices) {
-            // Merge all notes from all generated voices into the single progression rhythm track
-            const allNotes: { note: string; startBeat: number; durationBeats: number; velocity: number }[] = [];
+          let success = false;
+          while (!success) {
+            if (signal.aborted) throw new DOMException("Aborted", "AbortError");
             
-            for (const voice of result.voices) {
-              if (voice.notes && voice.notes.length > 0) {
-                allNotes.push(...voice.notes.map(n => ({
-                  note: n.note,
-                  startBeat: n.startBeat,
-                  durationBeats: n.durationBeats,
-                  velocity: n.velocity,
-                })));
+            try {
+              const chordsList = section.chords.chords.map(c => ({
+                chord: c.chord,
+                pianoNotes: c.pianoNotes || [],
+                role: c.role || "Tónica"
+              }));
+
+              const result = await generatePolyphonicRhythmAction({
+                prompt,
+                songTitle: targetSong.title || "Mi Canción",
+                sectionType: section.type,
+                sectionKey: section.key || targetSong.key || "C",
+                sectionScale: section.scale || "major",
+                chordsList,
+                selectedVoices,
+                rhythmicDensity,
+                tempo: targetSong.tempo || 90,
+              });
+              
+              if (result.success && result.voices) {
+                // Merge all notes from all generated voices into the single progression rhythm track
+                const allNotes: { note: string; startBeat: number; durationBeats: number; velocity: number }[] = [];
+                
+                for (const voice of result.voices) {
+                  if (voice.notes && voice.notes.length > 0) {
+                    allNotes.push(...voice.notes.map(n => ({
+                      note: n.note,
+                      startBeat: n.startBeat,
+                      durationBeats: n.durationBeats,
+                      velocity: n.velocity,
+                    })));
+                  }
+                }
+                
+                // Sort merged notes by startBeat for cleanliness
+                allNotes.sort((a, b) => a.startBeat - b.startBeat);
+                
+                rhythmTrack.sectionNotes = {
+                  ...rhythmTrack.sectionNotes,
+                  [sectionId]: allNotes
+                };
+                rhythmTrack.aiSections = { ...rhythmTrack.aiSections, [sectionId]: true };
+                rhythmTrack.prompts = { ...rhythmTrack.prompts, [sectionId]: prompt };
+                success = true;
+              } else {
+                throw new Error(result.error || `La IA no generó voces polifónicas para la sección ${section.type}`);
+              }
+            } catch (err: any) {
+              if (err.name === "AbortError") throw err;
+              const retry = await promptConfirm(`Fallo al generar ritmo polifónico para la sección "${section.type}". ¿Deseas reintentar y continuar?`);
+              if (!retry) {
+                throw new Error("Generación rítmica cancelada por el usuario en la sección " + section.type);
               }
             }
-            
-            // Sort merged notes by startBeat for cleanliness
-            allNotes.sort((a, b) => a.startBeat - b.startBeat);
-            
-            rhythmTrack.sectionNotes = {
-              ...rhythmTrack.sectionNotes,
-              [sectionId]: allNotes
-            };
-            rhythmTrack.aiSections = { ...rhythmTrack.aiSections, [sectionId]: true };
-            rhythmTrack.prompts = { ...rhythmTrack.prompts, [sectionId]: prompt };
-          } else {
-            console.warn(`[Polyphonic] No voices generated for section ${sectionType}: ${result.error}`);
           }
         }
 
@@ -668,21 +727,21 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         );
         return newSong;
       } catch (err: any) {
-        if (err.name === "AbortError") {
-          console.log("Polyphonic AI generation aborted.");
-        } else {
+        if (err.name !== "AbortError" && !err.message?.includes("unexpected response") && !signal.aborted) {
           console.error("Error generating polyphonic rhythms:", err);
           toast.error("Error al generar la polifonía con IA.");
         }
       } finally {
         setIsGeneratingRhythm(false);
         setAiProcess(prev => prev?.id === "rhythm-assistant" ? null : prev);
+        endTask();
       }
       return targetSong;
     }
 
     // ── MONOPHONIC BRANCH (original behaviour) ────────────────────────────────
     const toastId = toast.loading(`Generando ritmo IA para ${sectionIds.length} sección(es)...`);
+    startTask(`Generando ritmo IA para ${sectionIds.length} sección(es)...`);
 
     try {
       // Deep clone the song tracks structure to ensure state mutations are properly picked up
@@ -713,56 +772,68 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         newSong.tracks.unshift(rhythmTrack);
       }
 
-      // Generate rhythm in parallel for all sections
-      const monoPromises = sectionIds.map(async (sectionId) => {
+      // Generate rhythm sequentially with resume for all sections
+      for (const sectionId of sectionIds) {
         if (signal.aborted) throw new DOMException("Aborted", "AbortError");
         const section = targetSong.sections.find(s => s.id === sectionId);
-        if (!section || !section.chords || !section.chords.chords) return null;
+        if (!section || !section.chords || !section.chords.chords) continue;
+        updateTaskName(`Componiendo patrón rítmico para: ${section.type}`);
 
-        const chordsList = section.chords.chords.map(c => ({
-          chord: c.chord,
-          pianoNotes: c.pianoNotes || [],
-          role: c.role || "Tónica"
-        }));
+        let success = false;
+        while (!success) {
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-        const result = await generateSectionTrackAction({
-          songTitle: targetSong.title || "Mi Canción",
-          sectionType: section.type,
-          sectionKey: section.key || targetSong.key || "C",
-          sectionScale: section.scale || "major",
-          chordsList,
-          trackName: "Ritmo de Progresión",
-          midiChannel: 1,
-          userPrompt: prompt,
-          useOrnamentalNotes: options.useOrnamentalNotes,
-          ornamentalTypes: options.ornamentalTypes,
-          midiReferencePattern: options.midiReferencePattern
-        });
+          try {
+            const chordsList = section.chords.chords.map(c => ({
+              chord: c.chord,
+              pianoNotes: c.pianoNotes || [],
+              role: c.role || "Tónica"
+            }));
 
-        return { sectionId, result, sectionType: section.type };
-      });
+            const result = await generateSectionTrackAction({
+              songTitle: targetSong.title || "Mi Canción",
+              sectionType: section.type,
+              sectionKey: section.key || targetSong.key || "C",
+              sectionScale: section.scale || "major",
+              chordsList,
+              trackName: "Ritmo de Progresión",
+              midiChannel: 1,
+              userPrompt: prompt,
+              useOrnamentalNotes: options.useOrnamentalNotes,
+              ornamentalTypes: options.ornamentalTypes,
+              midiReferencePattern: options.midiReferencePattern
+            });
 
-      const monoResults = await Promise.all(monoPromises);
-      if (signal.aborted) { toast.dismiss(toastId); throw new DOMException("Aborted", "AbortError"); }
+            if (signal.aborted) {
+              toast.dismiss(toastId);
+              throw new DOMException("Aborted", "AbortError");
+            }
 
-      for (const mono of monoResults) {
-        if (!mono) continue;
-        const { sectionId, result, sectionType } = mono;
-        if (result.success && result.data && result.data.notes) {
-          rhythmTrack.sectionNotes = {
-            ...rhythmTrack.sectionNotes,
-            [sectionId]: result.data.notes
-          };
-          rhythmTrack.aiSections = {
-            ...rhythmTrack.aiSections,
-            [sectionId]: true
-          };
-          rhythmTrack.prompts = {
-            ...rhythmTrack.prompts,
-            [sectionId]: prompt
-          };
-        } else {
-          console.warn(`No se pudieron generar notas para la sección ${sectionType}: ${result.error}`);
+            if (result.success && result.data && result.data.notes) {
+              rhythmTrack.sectionNotes = {
+                ...rhythmTrack.sectionNotes,
+                [sectionId]: result.data.notes
+              };
+              rhythmTrack.aiSections = {
+                ...rhythmTrack.aiSections,
+                [sectionId]: true
+              };
+              rhythmTrack.prompts = {
+                ...rhythmTrack.prompts,
+                [sectionId]: prompt
+              };
+              success = true;
+            } else {
+              throw new Error(result.error || `La IA no generó notas para la sección ${section.type}`);
+            }
+          } catch (err: any) {
+            if (err.name === "AbortError") throw err;
+            console.error(`Error generating progression rhythm for section ${section.type}:`, err);
+            const retry = await promptConfirm(`Fallo al generar ritmo monofónico para la sección "${section.type}". ¿Deseas reintentar y continuar?`);
+            if (!retry) {
+              throw new Error("Generación rítmica cancelada por el usuario en la sección " + section.type);
+            }
+          }
         }
       }
 
@@ -1014,6 +1085,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     const toastId = `track-gen-${trackId}`;
     toast.loading(`Sinfonía AI componiendo pista "${trackName}"...`, { id: toastId });
     const signal = startAiProcess("track-generation", `Componiendo pista "${trackName}"`);
+    startTask(`Componiendo pista "${trackName}"...`);
 
     try {
       let completedCount = 0;
@@ -1027,6 +1099,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           throw new DOMException("Aborted", "AbortError");
         }
         const sect = sectionsWithChords[index];
+        updateTaskName(`Componiendo pista individual: ${trackName} (${sect.type})`);
         const chordsList = sect.chords!.chords.map(c => ({
           chord: c.chord,
           pianoNotes: c.pianoNotes || [],
@@ -1057,62 +1130,64 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
           }
         }
 
-        try {
-          const res = await generateSectionTrackAction({
-            songTitle: activeSong.title,
-            sectionType: sect.type,
-            sectionKey: sect.key,
-            sectionScale: sect.scale,
-            chordsList,
-            trackName: trackName,
-            midiChannel: midiChannel,
-            userPrompt: prompt || `Arreglo instrumental para ${trackName}`,
-            previousSectionType: prevSect?.type,
-            previousChordsList,
-            nextSectionType: nextSect?.type,
-            nextChordsList,
-            progressionRhythmNotes
-          });
-
+        let trackSuccess = false;
+        while (!trackSuccess) {
           if (signal.aborted) {
             toast.dismiss(toastId);
             throw new DOMException("Aborted", "AbortError");
           }
 
-          completedCount++;
-          const currentProgress = Math.round((completedCount / totalCount) * 100);
-
-          setActiveSong(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              tracks: prev.tracks?.map(t => 
-                t.id === trackId ? { ...t, progress: currentProgress } : t
-              )
+          try {
+            const payload: any = {
+              songTitle: activeSong.title,
+              sectionType: sect.type,
+              sectionKey: sect.key,
+              sectionScale: sect.scale,
+              chordsList,
+              trackName: trackName,
+              midiChannel: midiChannel,
+              userPrompt: prompt || `Arreglo instrumental para ${trackName}`
             };
-          });
+            if (prevSect?.type) payload.previousSectionType = prevSect.type;
+            if (previousChordsList) payload.previousChordsList = previousChordsList;
+            if (nextSect?.type) payload.nextSectionType = nextSect.type;
+            if (nextChordsList) payload.nextChordsList = nextChordsList;
+            if (progressionRhythmNotes) payload.progressionRhythmNotes = progressionRhythmNotes;
 
-          if (res.success && res.data?.notes && res.data.notes.length > 0) {
-            results.push({ sectionId: sect.id, success: true, notes: res.data.notes });
-          } else {
-            results.push({ sectionId: sect.id, success: false });
+            const res = await generateSectionTrackAction(payload);
+
+            if (signal.aborted) {
+              toast.dismiss(toastId);
+              throw new DOMException("Aborted", "AbortError");
+            }
+
+            if (res.success && res.data?.notes && res.data.notes.length > 0) {
+              results.push({ sectionId: sect.id, success: true, notes: res.data.notes });
+              trackSuccess = true;
+            } else {
+              throw new Error(res.error || "La IA devolvió un arreglo vacío");
+            }
+          } catch (sectErr: any) {
+            if (sectErr.name === "AbortError") throw sectErr;
+            console.error(`Error generating notes for section ${sect.type}:`, sectErr);
+            const retry = await promptConfirm(`Fallo al generar pistas para la sección "${sect.type}".\n\nDetalle del error:\n${sectErr.message || JSON.stringify(sectErr)}\n\n¿Deseas reintentar y continuar?`);
+            if (!retry) {
+              throw new Error("Generación cancelada por el usuario en la sección " + sect.type);
+            }
           }
-        } catch (sectErr: any) {
-          if (sectErr.name === "AbortError") throw sectErr;
-          console.error(`Error generating notes for section ${sect.type}:`, sectErr);
-          completedCount++;
-          const currentProgress = Math.round((completedCount / totalCount) * 100);
-          setActiveSong(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              tracks: prev.tracks?.map(t => 
-                t.id === trackId ? { ...t, progress: currentProgress } : t
-              )
-            };
-          });
-          results.push({ sectionId: sect.id, success: false });
         }
+
+        completedCount++;
+        const currentProgress = Math.round((completedCount / totalCount) * 100);
+        setActiveSong(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            tracks: prev.tracks?.map(t => 
+              t.id === trackId ? { ...t, progress: currentProgress } : t
+            )
+          };
+        });
       }
 
       const newSectionNotes: Record<string, any> = {};
@@ -1214,6 +1289,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     setGeneratingSectionIds(prev => ({ ...prev, [sectionId]: true }));
     toast.loading(`IA regenerando sección ${section.type} para la pista "${track.name}"...`, { id: "sec-regen-toast" });
     const signal = startAiProcess("section-regen", `Regenerando sección ${section.type}`);
+    startTask(`Regenerando sección ${section.type} de ${track.name}...`);
 
     const sectionIndex = activeSong.sections.findIndex(s => s.id === sectionId);
     const prevSect = sectionIndex > 0 ? activeSong.sections[sectionIndex - 1] : null;
@@ -1443,6 +1519,7 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
     setActiveSectionId(null);
     setActiveTab("estudio");
     const signal = startAiProcess("song-composition", "Componiendo canción completa");
+    startTask("Componiendo canción completa...");
     try {
       const res = await generateSongBlueprintAction(data);
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -1481,64 +1558,83 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         const totalSections = newSong.sections.length;
         let index = 0;
 
-        // Phase 1: Generate base sections in parallel (no reusedFrom, no variationOf)
-        setSongGenStatus("Componiendo armonía de secciones base simultáneamente...");
+        // Phase 1: Generate base sections sequentially with resume (no reusedFrom, no variationOf)
+        setSongGenStatus("Componiendo armonía de secciones base...");
+        startTask("Componiendo armonía de secciones base...");
         const baseSections = newSong.sections.filter(s => !s.reusedFrom && !s.variationOf);
         
-        const basePromises = baseSections.map(async (sect) => {
+        for (const sect of baseSections) {
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
           setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
-          try {
-            const chords = await generateSectionChords(sect, newSong.tempo, newSong.title, data.musicStyle);
-            return { type: sect.type, chords };
-          } finally {
-            setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
+          updateTaskName(`Componiendo acordes para la sección: ${sect.type}`);
+          
+          let success = false;
+          while (!success) {
+            if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+            try {
+              const chords = await generateSectionChords(sect, newSong.tempo, newSong.title, data.musicStyle);
+              if (chords) {
+                generatedSectionsMap.set(sect.type, chords);
+                success = true;
+              } else {
+                throw new Error("No se devolvieron acordes");
+              }
+            } catch (err: any) {
+              if (err.name === "AbortError") throw err;
+              const retry = await promptConfirm(`La IA falló al generar acordes para la sección "${sect.type}".\n\nDetalle del error:\n${err.message || JSON.stringify(err)}\n\n¿Deseas reintentar y continuar desde aquí?`);
+              if (!retry) {
+                throw new Error("Generación cancelada por el usuario en la sección " + sect.type);
+              }
+            }
           }
-        });
-
-        const baseResults = await Promise.all(basePromises);
-        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        
-        for (const res of baseResults) {
-          if (res.chords) generatedSectionsMap.set(res.type, res.chords);
+          setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
         }
 
         setSongGenProgress(60);
         
-        // Phase 2: Generate variations in parallel (depend on base chords)
-        setSongGenStatus("Armonizando variaciones de secciones...");
-        const varSections = newSong.sections.filter(s => s.variationOf);
-        
-        const varPromises = varSections.map(async (sect) => {
+        // Phase 2: Generate variations sequentially with resume
+        setSongGenStatus("Generando variaciones armónicas de las secciones base...");
+        startTask("Generando variaciones armónicas...");
+        const variationSections = newSong.sections.filter(s => s.variationOf);
+
+        for (const sect of variationSections) {
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
           const baseChords = generatedSectionsMap.get(sect.variationOf!);
           if (baseChords) {
             setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
-            try {
-              const baseChordsStr = baseChords.chords.map((c: any) => `${c.chord} (${c.role})`).join(", ");
-              const styleInstruction = data.musicStyle && data.musicStyle !== "Automático" ? `\n\nESTILO MUSICAL OBJETIVO: ${data.musicStyle}. Adapta la complejidad armónica (tipo de acordes, extensiones) para que encaje en este estilo.` : "";
-              const result = await generateChordProgressionAction({
-                prompt: `Variación armónica de la progresión previa [${baseChordsStr}]. Variación deseada: ${sect.prompt}. Sección: ${sect.type} de la canción ${newSong.title}${styleInstruction}`,
-                key: sect.key,
-                scale: sect.scale,
-                tempo: String(newSong.tempo),
-                chordCount: sect.chordCount
-              });
+            updateTaskName(`Generando variación armónica para la sección: ${sect.type}`);
+            let success = false;
+            while (!success) {
+              if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+              try {
+                const baseChordsStr = baseChords.chords.map((c: any) => `${c.chord} (${c.role})`).join(", ");
+                const styleInstruction = data.musicStyle && data.musicStyle !== "Automático" ? `\n\nESTILO MUSICAL OBJETIVO: ${data.musicStyle}. Adapta la complejidad armónica (tipo de acordes, extensiones) para que encaje en este estilo.` : "";
+                const result = await generateChordProgressionAction({
+                  prompt: `Variación armónica de la progresión previa [${baseChordsStr}]. Variación deseada: ${sect.prompt}. Sección: ${sect.type} de la canción ${newSong.title}${styleInstruction}`,
+                  key: sect.key,
+                  scale: sect.scale,
+                  tempo: String(newSong.tempo),
+                  chordCount: sect.chordCount
+                });
 
-              if (result.success && result.data) {
-                generatedSectionsMap.set(sect.type, result.data);
-                toast.success(`¡Sección ${sect.type} (variación de ${sect.variationOf}) generada!`);
+                if (result.success && result.data) {
+                  generatedSectionsMap.set(sect.type, result.data);
+                  toast.success(`¡Sección ${sect.type} (variación de ${sect.variationOf}) generada!`);
+                  success = true;
+                } else {
+                  throw new Error(result.error || "Error al generar variación");
+                }
+              } catch (err: any) {
+                if (err.name === "AbortError") throw err;
+                const retry = await promptConfirm(`La IA falló al generar la variación para la sección "${sect.type}".\n\nDetalle del error:\n${err.message || JSON.stringify(err)}\n\n¿Deseas reintentar y continuar desde aquí?`);
+                if (!retry) {
+                  throw new Error("Generación cancelada por el usuario en la sección " + sect.type);
+                }
               }
-            } catch (err) {
-              console.error("Error generating section variation:", err);
-            } finally {
-              setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
             }
+            setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
           }
-        });
-
-        await Promise.all(varPromises);
-        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        }
 
         setSongGenProgress(85);
 
@@ -1613,15 +1709,16 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         toast.error(res.error || "Fallo al crear estructura de canción.");
       }
     } catch (error: any) {
-      if (error.name !== "AbortError") {
+      if (error.name !== "AbortError" && !error.message?.includes("unexpected response") && !signal.aborted) {
         console.error(error);
-        toast.error("Ocurrió un error inesperado al componer.");
+        toast.error("Ocurrió un error inesperado al generar la canción");
       }
     } finally {
       setLoading(false);
       setSongGenProgress(0);
       setSongGenStatus("");
       setAiProcess(prev => prev?.id === "song-composition" ? null : prev);
+      endTask();
     }
   };
 
@@ -1818,6 +1915,10 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
 
       // 5. Generate all track melodies sequentially so we can abort between them
       const results: { trackId: string; success: boolean; notes?: any }[] = [];
+      const currentChordsList = chordsList;
+      const progressionRhythmTrack = activeSong.tracks?.find(t => t.isProgressionRhythm);
+      const progressionRhythmNotes = progressionRhythmTrack?.sectionNotes?.[section.id];
+      
       for (const track of tracksToRegenerate) {
         if (signal.aborted) {
           toast.dismiss(toastId);
@@ -1827,21 +1928,24 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         const customPrompt = track.prompts?.[section.id] || `Arreglo instrumental para ${track.name}`;
 
         try {
-          const res = await generateSectionTrackAction({
+          const actionPayload: any = {
             songTitle: activeSong.title,
             sectionType: section.type,
             sectionKey: section.key,
             sectionScale: section.scale,
-            chordsList,
+            chordsList: currentChordsList,
             trackName: track.name,
             midiChannel: track.midiChannel,
-            userPrompt: customPrompt,
-            previousSectionType: prevSect?.type,
-            previousChordsList,
-            previousSectionNotes,
-            nextSectionType: nextSect?.type,
-            nextChordsList
-          });
+            userPrompt: customPrompt
+          };
+          if (prevSect?.type) actionPayload.previousSectionType = prevSect.type;
+          if (previousChordsList) actionPayload.previousChordsList = previousChordsList;
+          if (previousSectionNotes) actionPayload.previousSectionNotes = previousSectionNotes;
+          if (nextSect?.type) actionPayload.nextSectionType = nextSect.type;
+          if (nextChordsList) actionPayload.nextChordsList = nextChordsList;
+          if (progressionRhythmNotes) actionPayload.progressionRhythmNotes = progressionRhythmNotes;
+
+          const res = await generateSectionTrackAction(actionPayload);
 
           if (signal.aborted) {
             toast.dismiss(toastId);
@@ -2187,13 +2291,6 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
                           <div className="text-[9px] text-muted-foreground/80 text-center font-medium">
                             Por favor espera mientras la IA orquesta tu canción (15-30 seg).
                           </div>
-                          <button
-                            type="button"
-                            onClick={cancelAiProcess}
-                            className="mt-2 self-center px-4 py-2 rounded-xl text-xs font-black bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 active:scale-95 transition-all duration-150 cursor-pointer"
-                          >
-                            Cancelar Composición
-                          </button>
                         </div>
                       </div>
                     ) : (
@@ -2951,42 +3048,45 @@ export function SongGenerator({ initialConfigs = [] }: SongGeneratorProps) {
         defaultSectionId={rhythmAssistantSectionId}
       />
 
-      {/* ========== GLOBAL AI CANCEL BANNER ========== */}
-      {aiProcess && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl border border-purple-500/30 bg-card/90 backdrop-blur-xl shadow-2xl shadow-purple-500/20 animate-in slide-in-from-bottom-4 fade-in duration-300"
-          style={{ minWidth: 320, maxWidth: 520 }}
-        >
-          {/* Animated Pulse Indicator */}
-          <div className="relative shrink-0">
-            <div className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping absolute inset-0" />
-            <div className="w-2.5 h-2.5 rounded-full bg-purple-400" />
-          </div>
 
-          {/* Label */}
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-black text-foreground truncate">
-              {aiProcess.label}
-            </p>
-            <p className="text-[9px] text-muted-foreground font-semibold tracking-wide uppercase">
-              Proceso IA activo · Espera o cancela
-            </p>
-          </div>
-
-          {/* Spinner */}
-          <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin shrink-0" />
-
-          {/* Cancel Button */}
-          <button
-            type="button"
-            onClick={cancelAiProcess}
-            className="shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-black bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 active:scale-95 transition-all duration-150 cursor-pointer"
-          >
-            Cancelar
-          </button>
+    {/* Interactive Error Resumption Dialog */}
+    <Dialog 
+      open={!!confirmPrompt} 
+      onOpenChange={(val) => { 
+        if (!val && confirmPrompt) confirmPrompt.onCancel(); 
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-rose-500">
+            <AlertCircle className="w-5 h-5" />
+            Fallo en Generación IA
+          </DialogTitle>
+          <DialogDescription className="text-base text-foreground mt-2">
+            {confirmPrompt?.message}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-3 mt-6">
+          <Button variant="outline" onClick={() => confirmPrompt?.onCancel()}>
+            No, Cancelar
+          </Button>
+          <Button variant="default" onClick={() => confirmPrompt?.onConfirm()}>
+            Sí, Reintentar
+          </Button>
         </div>
-      )}
+      </DialogContent>
+    </Dialog>
+
     </div>
 
+  );
+}
+
+export function SongGenerator(props: SongGeneratorProps) {
+  return (
+    <AiProgressProvider>
+      <SongGeneratorInner {...props} />
+      <AiProgressIndicator />
+    </AiProgressProvider>
   );
 }

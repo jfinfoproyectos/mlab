@@ -1,6 +1,6 @@
 "use server";
 
-import { generateText, generateObject } from "ai";
+import { generateObject } from "ai";
 import { getActiveAiProvider } from "../services/ai-provider.service";
 import { chordInputSchema, chordProgressionSchema, ChordInput, ChordProgression } from "../schemas/chord-generator.schema";
 
@@ -75,6 +75,7 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
 - 'inversion': MÁXIMO 2 palabras (ej: 'Fundamental', '1ra Inversión').
 - 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).`;
 
+
     // Build target user prompt respecting key, scale, and tempo
     let targetPrompt = `Genera una progresión de exactamente ${count} acordes basada en el prompt: "${validated.prompt}".\n`;
     if (validated.key && validated.key !== "Automático") {
@@ -90,298 +91,32 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
     // 3. Generate structured JSON output using the recommended Vercel AI SDK generateText API with Output.object
     console.log(`Calling Vercel AI SDK generateText with Output.object for prompt (${count} chords):`, targetPrompt);
     
-    try {
-      const result = await generateObject({
-        model: provider,
-        schema: chordProgressionSchema,
-        system: systemPrompt,
-        prompt: targetPrompt,
-        abortSignal: AbortSignal.timeout(45000),
-        maxRetries: 0
-      });
-
-      return {
-        success: true,
-        data: result.object,
-      };
-    } catch (structuredError: any) {
-      console.warn("La generación estructurada nativa (Output.object) falló, activando Fallback de Texto Resiliente:", structuredError);
-
-      // FALLBACK: Generate plain text and parse the JSON manually
-      const fallbackPrompt = `Genera una progresión de acordes basada en este prompt: "${targetPrompt}".
-IMPORTANTE: Tu respuesta debe ser EXCLUSIVAMENTE un objeto JSON en bruto válido, sin bloques de código markdown ni texto adicional.
-
-ESQUEMA A SEGUIR ESTRICTAMENTE:
-{
-  "name": "Nombre de la progresión",
-  "description": "Descripción de MÁXIMO 8 palabras",
-  "key": "Tonalidad (ej: C Minor)",
-  "tempo": 80,
-  "theoryExplanation": "Explicación teórica de la progresión (máx 60 palabras)",
-  "chords": [
-    {
-      "chord": "Cm9",
-      "duration": 4,
-      "role": "Tónica",
-      "romanNumeral": "i9",
-      "suggestedScale": "C Dórica",
-      "description": "Descripción de MÁXIMO 5 palabras",
-      "voicing": "Drop 2",
-      "inversion": "Fundamental",
-      "pianoNotes": ["C3", "Eb3", "G3", "Bb3", "D4"]
-    }
-  ]
-}
-
-IMPORTANTE: Todo acorde generado DEBE incluir obligatoriamente la tónica (Root/Fundamental) del acorde dentro del array 'pianoNotes'. Por ejemplo, para Ebm9, 'pianoNotes' DEBE incluir la nota Eb (ej. Eb3 o Eb4). Queda estrictamente prohibido utilizar voicings 'Rootless' (sin tónica).
-La nota más grave de 'pianoNotes' debe coincidir exactamente con 'inversion' (Fundamental = Tónica en el bajo, 1ra Inversión = Tercera en el bajo, 2da Inversión = Quinta en el bajo, 3ra Inversión = Séptima en el bajo).
-
-Completa la progresión con EXACTAMENTE ${count} acordes hermosos y coherentes.`;
-
-      let rawText = "";
-      try {
-        console.log("Activando Fallback de Texto Ultra-Resiliente sin restricciones de API JSON...");
-        const textResult = await generateText({
-          model: provider,
-          system: systemPrompt,
-          prompt: fallbackPrompt,
-          abortSignal: AbortSignal.timeout(35000),
-          maxRetries: 0
-          // Sin parametro 'output': generacion de texto plano 100% universal e infalible
-        });
-
-        rawText = textResult.text || "";
-        console.log("Texto devuelto por la IA en Fallback Ultra-Resiliente:", rawText);
-
-        if (!rawText.trim()) {
-          throw new Error("El modelo retorno una respuesta de texto vacia o nula.");
-        }
-
-        // Limpiar bloques de codigo de markdown si existen
-        let cleanedJsonText = rawText.trim();
-        if (cleanedJsonText.includes("```")) {
-          // Extraer lo que hay entre triple comilla si hay bloques de codigo
-          const match = cleanedJsonText.match(/```(?:json)?([\s\S]*?)```/);
-          if (match && match[1]) {
-            cleanedJsonText = match[1].trim();
-          }
-        }
-        
-        // Buscar el primer '{' y el ultimo '}' por si el modelo devolvio texto circundante
-        const firstBrace = cleanedJsonText.indexOf("{");
-        const lastBrace = cleanedJsonText.lastIndexOf("}");
-        if (firstBrace !== -1 && lastBrace !== -1) {
-          cleanedJsonText = cleanedJsonText.slice(firstBrace, lastBrace + 1);
-        } else {
-          throw new Error("No se encontraron llaves JSON '{' o '}' en la respuesta del modelo.");
-        }
-
-        const parsedJson = JSON.parse(cleanedJsonText);
-        
-        // Validar el objeto contra el esquema de Zod
-        const validatedData = chordProgressionSchema.parse(parsedJson);
-
-        return {
-          success: true,
-          data: validatedData,
-          debugInfo: "Generado exitosamente a traves del motor de Fallback de Texto Ultra-Resiliente.",
-        };
-
-      } catch (fallbackError: any) {
-        console.error("Error en el fallback de generación estructurada:", fallbackError);
-        
-        // Escribir un archivo log de depuración local para el desarrollador
-        try {
-          const fs = require("fs");
-          const path = require("path");
-          const logPath = path.join(process.cwd(), "src/features/music-studio/chord-generator-debug.log");
-          const logContent = `--- DEBUG LOG: ${new Date().toISOString()} ---\n` +
-            `Error original: ${structuredError.message || String(structuredError)}\n` +
-            `Error fallback: ${fallbackError.message || String(fallbackError)}\n` +
-            `Texto crudo del LLM:\n${rawText}\n\n`;
-          fs.appendFileSync(logPath, logContent, "utf-8");
-        } catch (logWriteError) {
-          console.error("No se pudo escribir el archivo debug.log:", logWriteError);
-        }
-
-        return {
-          success: false,
-          error: "No se pudo generar una salida estructurada válida.",
-          debugInfo: `Error original: ${structuredError.message || String(structuredError)}\n\nError de fallback: ${fallbackError.message || String(fallbackError)}\n\n--- TEXTO CRUDO DEVUELTO POR LA IA ---\n${rawText || "(Respuesta vacía del LLM)"}`,
-        };
-      }
-    }
-  } catch (error: any) {
-    console.warn("Error generating chord progression via AI. Activating premium offline fallback...", error);
-    
-    const lowerPrompt = validated.prompt.toLowerCase();
-    let name = "Progresión Pop (Offline)";
-    let description = "Secuencia pop-rock de contingencia.";
-    let key = validated.key && validated.key !== "Automático" ? validated.key : "C Minor";
-    let tempo = validated.tempo && validated.tempo !== "Automático" ? parseInt(validated.tempo, 10) || 80 : 80;
-    let theoryExplanation = "Debido a que tus claves de API de Google/OpenAI son inválidas o están fuera de servicio, el motor ha compuesto offline esta progresión perfecta basada en tensiones estándar.";
-    let chords = [];
-
-    if (lowerPrompt.includes("triste") || lowerPrompt.includes("melancolic") || lowerPrompt.includes("menor") || key.toLowerCase().includes("minor") || key.toLowerCase().includes("menor")) {
-      name = "Balada Neo-Soul Melancólica (Offline)";
-      description = "Vibra menor sofisticada.";
-      chords = [
-        {
-          chord: "Cm9",
-          duration: 4,
-          role: "Tónica",
-          romanNumeral: "i9",
-          suggestedScale: "C Dórica",
-          description: "Establece el tono menor.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["C3", "Eb3", "G3", "Bb3", "D4"]
-        },
-        {
-          chord: "Fm9",
-          duration: 4,
-          role: "Subdominante",
-          romanNumeral: "iv9",
-          suggestedScale: "F Dórica",
-          description: "Tensión y melancolía.",
-          voicing: "Drop 2",
-          inversion: "Fundamental",
-          pianoNotes: ["F3", "Ab3", "C4", "Eb4", "G4"]
-        },
-        {
-          chord: "Bb13",
-          duration: 4,
-          role: "Dominante Secundaria",
-          romanNumeral: "bVII13",
-          suggestedScale: "Bb Mixolidia",
-          description: "Brillo intermedio.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["Bb2", "D3", "Ab3", "C4", "G4"]
-        },
-        {
-          chord: "Ebmaj9",
-          duration: 4,
-          role: "Mediante (Relativo Mayor)",
-          romanNumeral: "bIIImaj9",
-          suggestedScale: "Eb Jónica",
-          description: "Resolución esperanzadora.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["Eb3", "G3", "Bb3", "D4", "F4"]
-        }
-      ];
-    } else if (lowerPrompt.includes("jazz") || lowerPrompt.includes("ii-v-i") || lowerPrompt.includes("sofisticad")) {
-      name = "Jazz ii-V-I Standard (Offline)";
-      description = "Armonía jazzística de lujo.";
-      chords = [
-        {
-          chord: "Dm9",
-          duration: 4,
-          role: "Supertónica",
-          romanNumeral: "ii9",
-          suggestedScale: "D Dórica",
-          description: "Inicio del ciclo.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["D3", "F3", "A3", "C4", "E4"]
-        },
-        {
-          chord: "G7(b9)",
-          duration: 4,
-          role: "Dominante",
-          romanNumeral: "V7b9",
-          suggestedScale: "G Alterada",
-          description: "Tensión máxima.",
-          voicing: "Drop 2",
-          inversion: "Fundamental",
-          pianoNotes: ["G3", "B3", "F4", "Ab4"]
-        },
-        {
-          chord: "Cmaj9",
-          duration: 4,
-          role: "Tónica",
-          romanNumeral: "Imaj9",
-          suggestedScale: "C Jónica",
-          description: "Resolución placentera.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["C3", "E3", "G3", "B3", "D4"]
-        },
-        {
-          chord: "A7(b9)",
-          duration: 4,
-          role: "Dominante Secundaria",
-          romanNumeral: "VI7b9",
-          suggestedScale: "A Alterada",
-          description: "Retorno al ciclo.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["A2", "C#3", "G3", "Bb3"]
-        }
-      ];
-    } else {
-      name = "Balada Pop Brillante (Offline)";
-      description = "Armonía pop dulce.";
-      chords = [
-        {
-          chord: "Cmaj9",
-          duration: 4,
-          role: "Tónica",
-          romanNumeral: "Imaj9",
-          suggestedScale: "C Jónica",
-          description: "Tónica inicial.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["C3", "E3", "G3", "B3", "D4"]
-        },
-        {
-          chord: "Am9",
-          duration: 4,
-          role: "Submediante",
-          romanNumeral: "vi9",
-          suggestedScale: "A Eólica",
-          description: "Profundidad menor.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["A2", "C3", "E3", "G3", "B3"]
-        },
-        {
-          chord: "Dm9",
-          duration: 4,
-          role: "Supertónica",
-          romanNumeral: "ii9",
-          suggestedScale: "D Dórica",
-          description: "Transición a dominante.",
-          voicing: "Close",
-          inversion: "Fundamental",
-          pianoNotes: ["D3", "F3", "A3", "C4", "E4"]
-        },
-        {
-          chord: "G13",
-          duration: 4,
-          role: "Dominante",
-          romanNumeral: "V13",
-          suggestedScale: "G Mixolidia",
-          description: "Tensión alegre.",
-          voicing: "Drop 2",
-          inversion: "Fundamental",
-          pianoNotes: ["G2", "B3", "F4", "E4"]
-        }
-      ];
-    }
+    const result = await generateObject({
+      model: provider,
+      schema: chordProgressionSchema,
+      system: systemPrompt,
+      prompt: targetPrompt,
+      abortSignal: AbortSignal.timeout(45000),
+      maxRetries: 0
+    });
 
     return {
       success: true,
-      data: {
-        name,
-        description,
-        key,
-        tempo,
-        theoryExplanation,
-        chords
-      },
-      debugInfo: `Generación Offline de Contingencia activa debido a: ${error.message || String(error)}`
+      data: result.object,
+    };
+  } catch (error: any) {
+    console.error("Error generating chord progression via AI:", error);
+    
+    // Extract actual error string if it is an object
+    let errorMessage = error.message || "Failed to generate chord progression via AI.";
+    if (typeof error === 'object' && error !== null) {
+      if (error.value) errorMessage = JSON.stringify(error.value);
+      else if (error.cause) errorMessage = JSON.stringify(error.cause);
+    }
+    
+    return {
+      success: false,
+      error: errorMessage,
     };
   }
 }

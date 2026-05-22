@@ -49,7 +49,7 @@ export function SectionRegenDialog({
 
   const handleSubmit = () => {
     onOpenChange(false);
-    onRegenerate(regenTrackId, regenSectionId, regenUserPrompt, syncWithProgression);
+    onRegenerate(regenTrackId, regenSectionId, regenUserPrompt, true); // Siempre sincronizado
   };
 
   return (
@@ -86,28 +86,7 @@ export function SectionRegenDialog({
             </div>
           </div>
 
-          {/* Sincronización Opcional de Ritmo */}
-          <div className="flex items-start space-x-3 bg-purple-500/5 p-4 rounded-2xl border border-purple-500/10">
-            <input
-              type="checkbox"
-              id="syncWithProgressionRegen"
-              checked={syncWithProgression}
-              onChange={(e) => setSyncWithProgression(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer"
-            />
-            <div className="grid gap-1 leading-tight cursor-pointer" onClick={() => setSyncWithProgression(!syncWithProgression)}>
-              <label
-                htmlFor="syncWithProgressionRegen"
-                className="text-xs font-black text-foreground cursor-pointer select-none"
-              >
-                Coordinar rítmicamente con la pista de progresiones
-              </label>
-              <p className="text-[10px] text-muted-foreground leading-normal">
-                (Opcional) La IA analizará las notas y ritmos actuales del acompañamiento para que la melodía de esta sección se sincronice y complemente con el ritmo del acorde.
-              </p>
-            </div>
-          </div>
-
+          {/* Sincronización Estricta - Oculto (Siempre True) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold text-muted-foreground flex items-center justify-between">
               <span>Instrucción / Prompt de Dirección Musical</span>

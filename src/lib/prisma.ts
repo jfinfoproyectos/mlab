@@ -4,7 +4,9 @@ import { Pool } from "pg";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
-  connectionTimeoutMillis: 2000, // Fail fast in 2s if database connection is unreachable or offline
+  connectionTimeoutMillis: 3000, // Fail fast in 3s if database connection is unreachable or offline
+  query_timeout: 15000, // Prevent queries from hanging indefinitely (15s max)
+  idleTimeoutMillis: 10000, // Close idle connections after 10s to avoid silent drops
 });
 
 const adapter = new PrismaPg(pool);

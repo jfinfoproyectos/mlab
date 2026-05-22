@@ -5,8 +5,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Music, Waves, Drum, Guitar, Keyboard, ListMusic } from "lucide-react";
 import { SongStructure } from "../schemas/song-generator.schema";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface TrackComposerDialogProps {
   open: boolean;
@@ -21,6 +22,18 @@ interface TrackComposerDialogProps {
   ) => void;
 }
 
+const INSTRUMENT_PRESETS = [
+  { id: "grand-piano", name: "Grand Piano" },
+  { id: "electric-piano", name: "Electric Piano" },
+  { id: "vintage-rhodes", name: "Vintage Rhodes" },
+  { id: "acoustic-bass", name: "Acoustic Bass" },
+  { id: "electric-bass", name: "Electric Bass" },
+  { id: "synth-pad", name: "Synth Pad" },
+  { id: "synth-lead", name: "Synth Lead" },
+  { id: "strings", name: "Strings" },
+  { id: "drum-kit", name: "Drum Kit" },
+];
+
 export function TrackComposerDialog({
   open,
   onOpenChange,
@@ -31,7 +44,6 @@ export function TrackComposerDialog({
   const [composerMidiChannel, setComposerMidiChannel] = useState<number>(2);
   const [composerInstrumentPreset, setComposerInstrumentPreset] = useState<string>("grand-piano");
   const [composerUserPrompt, setComposerUserPrompt] = useState<string>("");
-  const [syncWithProgression, setSyncWithProgression] = useState<boolean>(false);
 
   const handleSubmit = () => {
     if (!composerUserPrompt.trim()) return;
@@ -40,161 +52,173 @@ export function TrackComposerDialog({
       composerMidiChannel,
       composerInstrumentPreset,
       composerUserPrompt,
-      syncWithProgression
+      true // Siempre sincronizado estrictamente
     );
     setComposerUserPrompt("");
   };
 
+  const applyTemplate = (name: string, channel: number, preset: string, prompt: string) => {
+    setComposerTrackName(name);
+    setComposerMidiChannel(channel);
+    setComposerInstrumentPreset(preset);
+    setComposerUserPrompt(prompt);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto rounded-3xl border-purple-500/20 bg-card/95 backdrop-blur-md shadow-2xl p-6 overflow-x-hidden flex flex-col">
-        <DialogHeader className="pb-3 border-b border-border/30">
-          <DialogTitle className="text-xl font-black flex items-center gap-2 text-purple-400">
-            <Sparkles className="w-5 h-5 text-purple-500 animate-pulse" />
-            Sinfonía AI: Diseñador de Pistas y Arreglista Multicanal
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto rounded-3xl border-purple-500/20 bg-card/95 backdrop-blur-xl shadow-[0_0_50px_-12px_rgba(168,85,247,0.15)] p-6 overflow-x-hidden flex flex-col">
+        <DialogHeader className="pb-4 border-b border-border/30">
+          <DialogTitle className="text-2xl font-black flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">
+            <Sparkles className="w-6 h-6 text-purple-500 animate-pulse" />
+            Asistente de Melodías y Pistas IA
           </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Agrega voces melódicas, líneas de bajo o arreglos instrumentales globales. La IA los sincronizará y armonizará automáticamente para toda la canción.
+          <DialogDescription className="text-sm text-muted-foreground">
+            Diseña voces melódicas, líneas de bajo o arreglos orquestales. La IA sincronizará y armonizará matemáticamente las notas con los acordes de la canción completa.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-4">
-          {/* Global Generation Info Banner */}
-          <div className="p-3.5 bg-purple-500/10 border border-purple-500/20 rounded-2xl space-y-1">
-            <div className="text-[10px] uppercase font-bold text-purple-400">Generación Global de la Canción</div>
-            <div className="text-xs font-semibold text-foreground leading-normal">
-              Esta pista se compondrá en paralelo para **todas las secciones** de la canción en un solo clic. Después podrás regenerar o ajustar cualquier sección de forma independiente.
+        <div className="space-y-6 py-4">
+          {/* Quick Templates */}
+          <div className="space-y-3">
+            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <ListMusic className="w-4 h-4" />
+              Plantillas Inspiradoras
+            </Label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Bajo Caminante", 2, "acoustic-bass", "Línea de bajo caminante (walking bass) en negras, acentuando la tónica y la quinta de cada acorde de forma rítmica.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Guitar className="w-3.5 h-3.5" /> Bajo Caminante</div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Melodía Principal", 3, "synth-lead", "Melodía cantable y expresiva con notas ligadas, saltos melódicos suaves y notas largas al final de la frase.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Music className="w-3.5 h-3.5" /> Voz Melódica</div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Pad Atmosférico", 4, "synth-pad", "Acordes extendidos y texturas de sintetizador mantenidas (notas largas de redonda) para dar un fondo armónico denso.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Waves className="w-3.5 h-3.5" /> Pad Atmosférico</div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Arpegios Sintéticos", 5, "electric-piano", "Arpegios rápidos y continuos en semicorcheas subiendo y bajando por las notas del acorde.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Keyboard className="w-3.5 h-3.5" /> Arpegios Synth</div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Cuerdas Épicas", 6, "strings", "Línea de cuerdas dramática y creciente, acompañando la armonía con arreglos de contrapunto.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Music className="w-3.5 h-3.5" /> Cuerdas Épicas</div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => applyTemplate("Batería Estándar", 10, "drum-kit", "Patrón de batería rock/pop estándar en canal 10. Bombo en tiempo 1 y 3, caja en tiempo 2 y 4, charles en corcheas.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:text-amber-500 flex flex-col items-start gap-1 justify-start transition-all"
+              >
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Drum className="w-3.5 h-3.5" /> Batería (Ch. 10)</div>
+              </Button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 bg-muted/20 p-5 rounded-2xl border border-border/40">
             {/* Track Name */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-bold text-muted-foreground">
                 Nombre de la Pista
               </Label>
               <Input
                 value={composerTrackName}
                 onChange={(e) => setComposerTrackName(e.target.value)}
-                placeholder="Ej. Línea de Bajo, Voz Principal..."
-                className="rounded-xl border-border bg-card h-10 text-xs font-semibold"
+                placeholder="Ej. Línea de Bajo..."
+                className="rounded-xl border-border bg-card/50 h-10 text-xs font-semibold focus-visible:ring-purple-500"
               />
             </div>
 
-            {/* Predefined templates buttons */}
-            <div className="space-y-1.5">
+            {/* Instrument Selection */}
+            <div className="space-y-2">
               <Label className="text-xs font-bold text-muted-foreground">
-                Plantillas Rápidas
+                Instrumento (Preset)
               </Label>
-              <div className="grid grid-cols-2 gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setComposerTrackName("Línea de Bajo");
-                    setComposerMidiChannel(2);
-                    setComposerInstrumentPreset("grand-piano");
-                    setComposerUserPrompt("Línea de bajo caminante (walking bass) en negras, acentuando la tónica y la quinta de cada acorde.");
-                  }}
-                  className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400"
-                >
-                  🎸 Bajo Caminante
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setComposerTrackName("Melodía Principal");
-                    setComposerMidiChannel(3);
-                    setComposerInstrumentPreset("vintage-rhodes");
-                    setComposerUserPrompt("Melodía cantable y expresiva con notas ligadas y saltos melódicos suaves.");
-                  }}
-                  className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400"
-                >
-                  🎤 Voz Melódica
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setComposerTrackName("Batería (Standard)");
-                    setComposerMidiChannel(10);
-                    setComposerInstrumentPreset("drum-kit");
-                    setComposerUserPrompt("Patrón de batería estándar GM en canal 10. Bombo en C3 (tiempo 0 y 2), caja en D3 (tiempo 1 y 3) y contratiempo/charles cerrado en F#3 constante en corcheas.");
-                  }}
-                  className="h-8 rounded-lg text-[9px] font-bold border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 col-span-2 animate-pulse"
-                >
-                  🥁 Batería (Standard Drum Kit - Ch. 10)
-                </Button>
-              </div>
+              <Select value={composerInstrumentPreset} onValueChange={setComposerInstrumentPreset}>
+                <SelectTrigger className="w-full rounded-xl border-border bg-card/50 h-10 text-xs font-semibold focus:ring-purple-500">
+                  <SelectValue placeholder="Seleccionar Instrumento" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  {INSTRUMENT_PRESETS.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id} className="text-xs">
+                      {preset.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* MIDI Channel */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-muted-foreground flex justify-between">
+                <span>Canal MIDI</span>
+                {composerMidiChannel === 10 && <span className="text-[9px] text-amber-500">Percusión</span>}
+              </Label>
+              <Select value={composerMidiChannel.toString()} onValueChange={(val) => setComposerMidiChannel(parseInt(val, 10))}>
+                <SelectTrigger className="w-full rounded-xl border-border bg-card/50 h-10 text-xs font-semibold focus:ring-purple-500">
+                  <SelectValue placeholder="Seleccionar Canal" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl max-h-64">
+                  {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                    <SelectItem key={ch} value={ch.toString()} className="text-xs">
+                      Canal {ch} {ch === 1 ? "(Acordes)" : ch === 10 ? "(Batería)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          <div className="w-full">
-            {/* MIDI Channel Selection */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground">
-                Canal MIDI de Salida
-              </Label>
-              <select
-                value={composerMidiChannel}
-                onChange={(e) => setComposerMidiChannel(parseInt(e.target.value, 10))}
-                className="w-full rounded-xl border border-border bg-card hover:bg-muted text-foreground h-10 px-3 text-xs font-semibold focus:outline-none transition-colors cursor-pointer"
-              >
-                {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                  <option key={ch} value={ch}>
-                    Canal {ch} {ch === 1 ? "(General / Acordes)" : ch === 10 ? "(Batería / Percusión estándar)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {/* Sincronización Opcional de Ritmo */}
-          <div className="flex items-start space-x-3 bg-purple-500/5 p-4 rounded-2xl border border-purple-500/10">
-            <input
-              type="checkbox"
-              id="syncWithProgression"
-              checked={syncWithProgression}
-              onChange={(e) => setSyncWithProgression(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer"
-            />
-            <div className="grid gap-1 leading-tight cursor-pointer" onClick={() => setSyncWithProgression(!syncWithProgression)}>
-              <label
-                htmlFor="syncWithProgression"
-                className="text-xs font-black text-foreground cursor-pointer select-none"
-              >
-                Coordinar rítmicamente con la pista de progresiones
-              </label>
-              <p className="text-[10px] text-muted-foreground leading-normal">
-                (Opcional) La IA analizará las notas y ritmos actuales del acompañamiento para que esta nueva pista toque de forma musicalmente complementaria y sincronizada.
-              </p>
-            </div>
-          </div>
+          {/* Sincronización Estricta - Oculto (Siempre True) */}
 
           {/* Prompt Guidance Area */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex justify-between items-center">
               <Label className="text-xs font-bold text-muted-foreground">
-                Dirección y Prompt para la Melodía
+                Instrucción Creativa (Prompt)
               </Label>
               <span className="text-[9px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                Armonización Sincronizada Activa
+                Sincronización Estricta con Acordes
               </span>
             </div>
-            <textarea
-              value={composerUserPrompt}
-              onChange={(e) => setComposerUserPrompt(e.target.value)}
-              placeholder="Ej. Melodía arpegiada rápida en semicorcheas, alegre, que empiece en la tercera de cada acorde para dar una sensación dulce de tensión armónica..."
-              rows={4}
-              className="w-full rounded-xl border border-border bg-card p-3 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none hover:bg-card/85 transition-colors"
-            />
-            <p className="text-[10px] text-muted-foreground leading-normal italic">
-              *Nota: La IA calculará automáticamente los tonos de paso y las tensiones del acorde para que la pista armonice sin disonancias indeseadas.*
+            <div className="relative group">
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+              <textarea
+                value={composerUserPrompt}
+                onChange={(e) => setComposerUserPrompt(e.target.value)}
+                placeholder="Ej. Melodía arpegiada rápida en semicorcheas, alegre, que empiece en la tercera de cada acorde para dar una sensación dulce..."
+                rows={4}
+                className="relative w-full rounded-xl border border-purple-500/20 bg-card p-4 text-sm font-medium focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 resize-none hover:bg-card/90 transition-colors shadow-inner"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-normal italic pt-1">
+              *Nota: Escribe con naturalidad. La IA calculará automáticamente los tonos de paso y las tensiones para que la pista suene perfecta sobre la progresión base.*
             </p>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 pt-3 border-t border-border/30">
+        <div className="flex justify-end gap-3 pt-4 border-t border-border/30 mt-2">
           <Button
             type="button"
             variant="ghost"
@@ -207,10 +231,10 @@ export function TrackComposerDialog({
             type="button"
             onClick={handleSubmit}
             disabled={!composerUserPrompt.trim()}
-            className="rounded-xl h-10 px-5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-950/20 flex items-center gap-2 transition-all active:scale-[0.98]"
+            className="rounded-xl h-10 px-6 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg shadow-purple-900/20 flex items-center gap-2 transition-all active:scale-[0.98]"
           >
             <Sparkles className="w-4 h-4 animate-pulse" />
-            Generar Pista Completa con IA
+            Componer Pista IA
           </Button>
         </div>
       </DialogContent>
