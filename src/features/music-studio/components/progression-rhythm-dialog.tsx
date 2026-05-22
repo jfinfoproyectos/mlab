@@ -40,7 +40,16 @@ export interface AiRhythmOptions {
   useOrnamentalNotes: boolean;
   ornamentalTypes: OrnamentalType[];
   midiReferencePattern?: string;
+  polyphonic?: PolyphonicOptions;
 }
+
+export interface PolyphonicOptions {
+  enabled: boolean;
+  voices: PolyphonicVoiceRole[];
+  rhythmicDensity: "sparse" | "medium" | "dense";
+}
+
+export type PolyphonicVoiceRole = "bass" | "melody" | "countermelody" | "pad";
 
 export type OrnamentalType =
   | "passing-tones"
@@ -182,6 +191,11 @@ export function ProgressionRhythmDialog({
     "9th-11th-13th"
   ]);
 
+  // Polyphonic options
+  const [polyphonicEnabled, setPolyphonicEnabled] = useState(false);
+  const [polyphonicVoices, setPolyphonicVoices] = useState<PolyphonicVoiceRole[]>(["bass", "melody"]);
+  const [rhythmicDensity, setRhythmicDensity] = useState<"sparse" | "medium" | "dense">("medium");
+
   // MIDI Reference options
   const [parsedMidi, setParsedMidi] = useState<Midi | null>(null);
   const [midiFileName, setMidiFileName] = useState<string | null>(null);
@@ -295,7 +309,10 @@ export function ProgressionRhythmDialog({
     const options: AiRhythmOptions = {
       useOrnamentalNotes,
       ornamentalTypes: useOrnamentalNotes ? ornamentalTypes : [],
-      midiReferencePattern
+      midiReferencePattern,
+      polyphonic: polyphonicEnabled
+        ? { enabled: true, voices: polyphonicVoices, rhythmicDensity }
+        : undefined,
     };
 
     await onGenerateAiRhythm(prompt || "Acordes con ritmo armónico estándar", targetSectionIds, options);
@@ -609,6 +626,145 @@ export function ProgressionRhythmDialog({
                 </div>
               </div>
 
+              {/* ─── POLYPHONIC RHYTHM PANEL ─── */}
+              <div className="border border-border/40 rounded-2xl overflow-hidden">
+                {/* Header toggle */}
+                <button
+                  type="button"
+                  disabled={isGeneratingAiRhythm}
+                  onClick={() => setPolyphonicEnabled(v => !v)}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all cursor-pointer select-none",
+                    polyphonicEnabled
+                      ? "bg-violet-500/10 border-b border-violet-500/20"
+                      : "bg-muted/20 hover:bg-muted/40"
+                  )}
+                >
+                  <div className={cn(
+                    "w-8 h-4 rounded-full flex-shrink-0 transition-all relative",
+                    polyphonicEnabled ? "bg-violet-500" : "bg-muted-foreground/30"
+                  )}>
+                    <span className={cn(
+                      "absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all",
+                      polyphonicEnabled ? "left-4" : "left-0.5"
+                    )} />
+                  </div>
+                  <div className="flex-1">
+                    <div className={cn("text-xs font-black flex items-center gap-1.5",
+                      polyphonicEnabled ? "text-violet-400" : "text-foreground"
+                    )}>
+                      <Music className="w-3.5 h-3.5" />
+                      Modo Polifónico — Múltiples Voces Simultáneas
+                    </div>
+                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                      La IA genera notas polifónicas simultáneas dentro de la pista de progresiones.
+                    </div>
+                  </div>
+                  {polyphonicEnabled && (
+                    <span className="text-[9px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full">
+                      ACTIVADO
+                    </span>
+                  )}
+                </button>
+
+                {/* Collapsible content */}
+                {polyphonicEnabled && (
+                  <div className="p-3 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                    {/* Voice selection */}
+                    <div>
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-violet-400" /> Voces a Generar
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {([
+                          { role: "bass" as const, emoji: "🎸", label: "Bajo", desc: "Línea de bajo rítmica y armónica" },
+                          { role: "melody" as const, emoji: "🎹", label: "Melodía", desc: "Voz principal cantable y expresiva" },
+                          { role: "countermelody" as const, emoji: "🎵", label: "Contrapunto", desc: "Voz interior con movimiento contrario" },
+                          { role: "pad" as const, emoji: "🎼", label: "Pad Armónico", desc: "Notas largas que rellenan la armonía" },
+                        ] as const).map(({ role, emoji, label, desc }) => {
+                          const isActive = polyphonicVoices.includes(role);
+                          return (
+                            <button
+                              key={role}
+                              type="button"
+                              disabled={isGeneratingAiRhythm}
+                              onClick={() => {
+                                setPolyphonicVoices(prev =>
+                                  prev.includes(role)
+                                    ? prev.filter(v => v !== role)
+                                    : [...prev, role]
+                                );
+                              }}
+                              className={cn(
+                                "flex items-start gap-2 px-3 py-2 rounded-xl border text-left cursor-pointer transition-all duration-150 select-none",
+                                isActive
+                                  ? "bg-violet-500/10 border-violet-500/40 text-violet-400"
+                                  : "bg-muted/10 border-border/30 text-muted-foreground hover:bg-muted/30"
+                              )}
+                            >
+                              <div className={cn(
+                                "w-3.5 h-3.5 mt-0.5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all",
+                                isActive ? "border-current bg-current" : "border-muted-foreground/50"
+                              )}>
+                                {isActive && (
+                                  <svg viewBox="0 0 8 8" className="w-2 h-2 text-white fill-white">
+                                    <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] font-black">{emoji} {label}</div>
+                                <div className="text-[8px] opacity-80 leading-tight">{desc}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {polyphonicVoices.length === 0 && (
+                        <p className="text-[9px] text-rose-400 mt-1.5">⚠ Selecciona al menos una voz para generar.</p>
+                      )}
+                    </div>
+
+                    {/* Density selector */}
+                    <div>
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                        Densidad Rítmica
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {([
+                          { id: "sparse" as const, label: "☁️ Suave", desc: "Pocas notas, silencios amplios" },
+                          { id: "medium" as const, label: "⚖️ Media", desc: "Balance entre notas y silencios" },
+                          { id: "dense" as const, label: "🔥 Densa", desc: "Semicorcheas y contratiempos" },
+                        ] as const).map(({ id, label, desc }) => (
+                          <button
+                            key={id}
+                            type="button"
+                            disabled={isGeneratingAiRhythm}
+                            onClick={() => setRhythmicDensity(id)}
+                            className={cn(
+                              "p-2 rounded-xl border text-left cursor-pointer transition-all duration-150 select-none",
+                              rhythmicDensity === id
+                                ? "bg-violet-500/10 border-violet-500/40 text-violet-400"
+                                : "bg-muted/10 border-border/30 text-muted-foreground hover:bg-muted/30"
+                            )}
+                          >
+                            <div className="text-[10px] font-black">{label}</div>
+                            <div className="text-[8px] opacity-80 leading-tight mt-0.5">{desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-violet-500/5 border border-violet-500/10 rounded-xl p-2.5 text-[9px] text-violet-400 flex gap-2">
+                      <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        Todas las voces generadas se combinarán armónicamente en la pista de progresiones.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* ─── ORNAMENTAL NOTES / MUSIC THEORY PANEL ─── */}
               <div className="border border-border/40 rounded-2xl overflow-hidden">
                 {/* Header toggle */}
@@ -830,23 +986,29 @@ export function ProgressionRhythmDialog({
               </Button>
               <Button
                 onClick={handleSubmitAi}
-                disabled={isGeneratingAiRhythm || activeSectionCount === 0}
+                disabled={isGeneratingAiRhythm || activeSectionCount === 0 || (polyphonicEnabled && polyphonicVoices.length === 0)}
                 className={cn(
                   "rounded-xl text-xs font-black px-5 text-white cursor-pointer shadow-lg flex items-center gap-1.5 disabled:opacity-50",
-                  useOrnamentalNotes
-                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-indigo-500/20"
-                    : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 hover:shadow-purple-500/20"
+                  polyphonicEnabled
+                    ? "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 hover:shadow-violet-500/20"
+                    : useOrnamentalNotes
+                      ? "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-indigo-500/20"
+                      : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 hover:shadow-purple-500/20"
                 )}
               >
-                {useOrnamentalNotes
-                  ? <BookOpen className="w-3.5 h-3.5" />
-                  : <Sparkles className="w-3.5 h-3.5" />
+                {polyphonicEnabled
+                  ? <Music className="w-3.5 h-3.5" />
+                  : useOrnamentalNotes
+                    ? <BookOpen className="w-3.5 h-3.5" />
+                    : <Sparkles className="w-3.5 h-3.5" />
                 }
                 {isGeneratingAiRhythm
-                  ? "Generando Ritmos..."
-                  : useOrnamentalNotes
-                    ? `Generar con Teoría Avanzada (${activeSectionCount} Secc.)`
-                    : `Generar con IA (${activeSectionCount} Secc.)`
+                  ? (polyphonicEnabled ? "Generando Polifonía..." : "Generando Ritmos...")
+                  : polyphonicEnabled
+                    ? `Generar Polifonía IA (${activeSectionCount} Secc. · ${polyphonicVoices.length} voces)`
+                    : useOrnamentalNotes
+                      ? `Generar con Teoría Avanzada (${activeSectionCount} Secc.)`
+                      : `Generar con IA (${activeSectionCount} Secc.)`
                 }
               </Button>
             </>

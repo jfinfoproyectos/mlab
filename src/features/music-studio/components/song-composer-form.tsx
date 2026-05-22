@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Sparkles, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -28,8 +28,8 @@ export function SongComposerForm({
   onGenerateSong,
   onImportSong
 }: SongComposerFormProps) {
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<SongInput>({
-    resolver: zodResolver(songInputSchema),
+  const { register, handleSubmit, setValue, control, formState: { errors } } = useForm<SongInput>({
+    resolver: zodResolver(songInputSchema) as any,
     defaultValues: {
       prompt: "",
       key: "Automático",
@@ -37,9 +37,18 @@ export function SongComposerForm({
       tempo: "",
       structureMode: "Automático",
       chordsMode: "Automático",
-      repetitionMode: "Automático"
+      repetitionMode: "Automático",
+      musicStyle: "Automático",
+      autoGenerateRhythm: false,
+      rhythmPolyphonic: false,
+      rhythmDensity: "medium",
+      polyphonicVoices: ["bass", "melody"]
     }
   });
+
+  const autoGenerateRhythm = useWatch({ control, name: "autoGenerateRhythm" });
+  const rhythmPolyphonic = useWatch({ control, name: "rhythmPolyphonic" });
+  const polyphonicVoices = useWatch({ control, name: "polyphonicVoices" }) || [];
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -130,6 +139,22 @@ export function SongComposerForm({
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider border-b border-border/20 pb-2 flex items-center gap-1.5">
               Configuración del Arreglo
             </h4>
+
+            <div className="space-y-2">
+              <Label htmlFor="musicStyle" className="text-xs font-bold">Estilo Musical (Complejidad)</Label>
+              <select
+                id="musicStyle"
+                {...register("musicStyle")}
+                className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                <option value="Automático">🔮 Automático (Según prompt)</option>
+                <option value="Pop/Comercial">Pop / Comercial (Tríadas y 7mas simples)</option>
+                <option value="Jazz/Neo-Soul">Jazz / Neo-Soul (Extensiones 9, 11, 13)</option>
+                <option value="Salsa/Latina">Salsa / Latina (Síncopas y tensiones)</option>
+                <option value="Rock/Indie">Rock / Indie (Power chords, acordes abiertos)</option>
+                <option value="Clásica/Orquestal">Clásica / Orquestal (Contrapunto, inversiones)</option>
+              </select>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -233,6 +258,110 @@ export function SongComposerForm({
               </div>
             </div>
           </div>
+          
+          {/* ─── AUTO-GENERATION PANEL ─── */}
+          <div className="col-span-1 md:col-span-2 space-y-4 bg-primary/5 p-4 rounded-2xl border border-primary/20">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input 
+                type="checkbox" 
+                {...register("autoGenerateRhythm")}
+                className="w-5 h-5 rounded-md border-primary/50 text-primary focus:ring-primary/50 accent-primary"
+              />
+              <div>
+                <div className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  Auto-Generar Acompañamiento
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  Crea automáticamente una base rítmica o polifónica al terminar de componer la estructura y los acordes.
+                </div>
+              </div>
+            </label>
+
+            {autoGenerateRhythm && (
+              <div className="pl-8 pt-2 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs">
+                    <input 
+                      type="radio" 
+                      value="false"
+                      {...register("rhythmPolyphonic")}
+                      checked={String(rhythmPolyphonic) === "false"}
+                      onChange={() => setValue("rhythmPolyphonic", false)}
+                      className="accent-primary"
+                    />
+                    Base Simple (Monofónica)
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs">
+                    <input 
+                      type="radio" 
+                      value="true"
+                      {...register("rhythmPolyphonic")}
+                      checked={String(rhythmPolyphonic) === "true"}
+                      onChange={() => setValue("rhythmPolyphonic", true)}
+                      className="accent-primary"
+                    />
+                    Polifonía Completa (Múltiples Voces)
+                  </label>
+                </div>
+
+                {String(rhythmPolyphonic) === "true" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-background/50 p-3 rounded-xl border border-border/50">
+                    <div>
+                      <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 block">
+                        Voces a Generar
+                      </Label>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          { role: "bass", label: "🎸 Bajo" },
+                          { role: "melody", label: "🎹 Melodía" },
+                          { role: "countermelody", label: "🎵 Contrapunto" },
+                          { role: "pad", label: "🎼 Pad" }
+                        ]).map(v => (
+                          <label key={v.role} className="flex items-center gap-1.5 text-[11px] cursor-pointer bg-muted/30 px-2 py-1 rounded border border-border/30">
+                            <input 
+                              type="checkbox" 
+                              value={v.role}
+                              checked={polyphonicVoices.includes(v.role)}
+                              onChange={(e) => {
+                                const current = [...polyphonicVoices];
+                                if (e.target.checked) {
+                                  setValue("polyphonicVoices", [...current, v.role]);
+                                } else {
+                                  setValue("polyphonicVoices", current.filter(x => x !== v.role));
+                                }
+                              }}
+                              className="accent-primary"
+                            />
+                            {v.label}
+                          </label>
+                        ))}
+                      </div>
+                      {polyphonicVoices.length === 0 && (
+                        <p className="text-[9px] text-rose-400 mt-1">Selecciona al menos una voz.</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="rhythmDensity" className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 block">
+                        Densidad Rítmica
+                      </Label>
+                      <select
+                        id="rhythmDensity"
+                        {...register("rhythmDensity")}
+                        className="w-full rounded-md border border-border bg-background h-8 px-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      >
+                        <option value="sparse">☁️ Suave (Pocas notas)</option>
+                        <option value="medium">⚖️ Media (Equilibrada)</option>
+                        <option value="dense">🔥 Densa (Muchas notas)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
         </div>
 
         <Button 

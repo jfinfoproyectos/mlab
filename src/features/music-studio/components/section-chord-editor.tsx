@@ -14,6 +14,7 @@ interface SectionChordEditorProps {
   tracks?: SongTrack[];
   onRegenerateTrackSectionClick?: (trackId: string, sectionId: string) => void;
   onResetSectionSyncClick?: (trackId: string, sectionId: string) => void;
+  isAiLoading?: boolean;
 }
 
 // Convert pitch name to MIDI number
@@ -50,7 +51,8 @@ export function SectionChordEditor({
   getRoleColor,
   tracks = [],
   onRegenerateTrackSectionClick,
-  onResetSectionSyncClick
+  onResetSectionSyncClick,
+  isAiLoading = false,
 }: SectionChordEditorProps) {
   const isGenerating = generatingSectionIds[selectedSection.id];
 
@@ -318,8 +320,9 @@ export function SectionChordEditor({
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    disabled={isAiLoading}
                                     onClick={() => onRegenerateTrackSectionClick(track.id, selectedSection.id)}
-                                    className="rounded-xl text-xs h-8 font-bold border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all flex items-center gap-1.5"
+                                    className="rounded-xl text-xs h-8 font-bold border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     <Sparkles className="w-3 h-3 text-primary animate-pulse" />
                                     {track.aiSections?.[selectedSection.id] ? "Regenerar IA" : "Componer con IA"}
@@ -331,8 +334,9 @@ export function SectionChordEditor({
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  disabled={isAiLoading}
                                   onClick={() => onRegenerateTrackSectionClick(track.id, selectedSection.id)}
-                                  className="rounded-xl text-xs h-8 font-bold border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all flex items-center gap-1.5"
+                                  className="rounded-xl text-xs h-8 font-bold border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <Sparkles className="w-3 h-3 text-primary animate-pulse" />
                                   {hasNotes ? "Regenerar Sección" : "Componer Sección"}

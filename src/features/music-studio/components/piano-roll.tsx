@@ -36,6 +36,107 @@ const isBlackKey = (midi: number): boolean => {
   return [1, 3, 6, 8, 10].includes(noteIndex);
 };
 
+// Componente memoizado para renderizar las notas pesadas sin bloquear el hilo cuando cambian estados de reproducción
+const MemoizedTrackNotes = React.memo(({
+  trackNotes,
+  midiRange,
+  keyHeight,
+  pxPerBeat,
+  headerHeight,
+  currentBeat,
+  dragState,
+  selectedNoteRef,
+  isEditMode,
+  setDragState,
+  setSelectedNoteRef
+}: any) => {
+  return (
+    <TooltipProvider>
+      {trackNotes.map((note: any) => {
+        const noteTop = (midiRange.maxMidi - note.midiNum) * keyHeight;
+        const noteWidth = note.durationBeats * pxPerBeat;
+        const noteLeft = note.startBeat * pxPerBeat;
+        const isActive = currentBeat >= note.startBeat && currentBeat < (note.startBeat + note.durationBeats);
+
+        const isDraggingThis = dragState?.noteId === note.id;
+        const renderTop = isDraggingThis ? (midiRange.maxMidi - dragState.currentMidiNum) * keyHeight : noteTop;
+        const renderLeft = isDraggingThis ? dragState.currentStartBeat * pxPerBeat : noteLeft;
+        const renderWidth = isDraggingThis ? dragState.currentDurationBeats * pxPerBeat : noteWidth;
+        const isSelected = selectedNoteRef?.trackId === note.trackId && 
+                           selectedNoteRef?.sectionId === note.sectionId && 
+                           selectedNoteRef?.noteIndex === note.noteIndex;
+
+        return (
+          <Tooltip key={note.id} delayDuration={150}>
+            <TooltipTrigger asChild>
+              <div
+                data-note-id={note.id}
+                data-note-color={note.color}
+                onPointerDown={(e) => {
+                  if (!isEditMode) return;
+                  e.stopPropagation();
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const isRightEdge = (e.clientX - rect.left) > (rect.width - 15);
+                  
+                  setSelectedNoteRef({
+                    trackId: note.trackId,
+                    sectionId: note.sectionId,
+                    noteIndex: note.noteIndex
+                  });
+
+                  setDragState({
+                    noteId: note.id,
+                    trackId: note.trackId,
+                    sectionId: note.sectionId,
+                    noteIndex: note.noteIndex,
+                    sectionStartBeat: note.sectionStartBeat,
+                    type: isRightEdge ? "resize" : "move",
+                    initialX: e.clientX,
+                    initialY: e.clientY,
+                    initialStartBeat: note.startBeat,
+                    initialDurationBeats: note.durationBeats,
+                    initialMidiNum: note.midiNum,
+                    currentStartBeat: note.startBeat,
+                    currentDurationBeats: note.durationBeats,
+                    currentMidiNum: note.midiNum
+                  });
+                }}
+                style={{
+                  position: "absolute",
+                  top: `${renderTop + 1 + headerHeight}px`,
+                  left: `${renderLeft}px`,
+                  width: `${renderWidth - 2}px`,
+                  height: `${keyHeight - 2}px`,
+                  cursor: isEditMode ? (isDraggingThis && dragState.type === "resize" ? "ew-resize" : "move") : (isActive ? "pointer" : "default"),
+                  opacity: isDraggingThis ? 1.0 : (0.35 + (note.velocity ?? 0.7) * 0.65)
+                }}
+                className={`rounded-md border text-[8px] font-black px-1.5 flex items-center justify-center select-none overflow-hidden transition-all bg-gradient-to-r ${
+                  isActive || isDraggingThis
+                    ? "z-[25] scale-y-[1.15] scale-x-[1.02] brightness-150 ring-2 ring-white/80 shadow-[0_0_25px_rgba(255,255,255,0.6)] border-white" 
+                    : isSelected
+                      ? "z-[20] scale-y-[1.05] scale-x-[1.01] brightness-125 ring-2 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] border-purple-400"
+                      : "z-[15] hover:opacity-100 hover:scale-y-[1.02]"
+                } ${isEditMode ? "hover:ring-2 hover:ring-purple-400/50" : ""} ${note.color}`}
+              >
+                <span className="font-mono flex-shrink-0 text-[8px] drop-shadow-md truncate opacity-90 pointer-events-none">
+                  {note.pitch} <span className="opacity-60 text-[7px] font-sans">({Math.round((note.velocity ?? 0.7) * 100)})</span>
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="center" className="text-xs z-[100] shadow-xl pointer-events-none p-2.5 flex flex-col gap-1">
+              <div className="font-black text-sm">{note.trackName}</div>
+              <div className="opacity-80">Nota: <span className="font-mono font-bold opacity-100">{note.pitch}</span> <span className="text-[10px] opacity-60">(MIDI: {note.midiNum})</span></div>
+              <div className="opacity-80">Beat: <span className="font-bold opacity-100">{note.startBeat}</span> | Duración: <span className="font-bold opacity-100">{note.durationBeats}</span></div>
+              <div className="opacity-80">Dinámica: <span className="font-bold opacity-100">{Math.round((note.velocity ?? 0.7) * 127)} ({Math.round((note.velocity ?? 0.7) * 100)}%)</span></div>
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </TooltipProvider>
+  );
+});
+
 function PianoRollComponent({
   activeSong,
   isPlaying,
@@ -846,89 +947,19 @@ function PianoRollComponent({
             })}
 
             {/* D. RENDER FOREGROUND ACTIVE TRACK NOTES */}
-            <TooltipProvider>
-              {trackNotes.map((note) => {
-                const noteTop = (midiRange.maxMidi - note.midiNum) * keyHeight;
-                const noteWidth = note.durationBeats * pxPerBeat;
-                const noteLeft = note.startBeat * pxPerBeat;
-                const isActive = currentBeat >= note.startBeat && currentBeat < (note.startBeat + note.durationBeats);
-
-                const isDraggingThis = dragState?.noteId === note.id;
-                const renderTop = isDraggingThis ? (midiRange.maxMidi - dragState.currentMidiNum) * keyHeight : noteTop;
-                const renderLeft = isDraggingThis ? dragState.currentStartBeat * pxPerBeat : noteLeft;
-                const renderWidth = isDraggingThis ? dragState.currentDurationBeats * pxPerBeat : noteWidth;
-                const isSelected = selectedNoteRef?.trackId === note.trackId && 
-                                   selectedNoteRef?.sectionId === note.sectionId && 
-                                   selectedNoteRef?.noteIndex === note.noteIndex;
-
-                return (
-                  <Tooltip key={note.id} delayDuration={150}>
-                    <TooltipTrigger asChild>
-                      <div
-                        data-note-id={note.id}
-                        data-note-color={note.color}
-                        onPointerDown={(e) => {
-                          if (!isEditMode) return;
-                          e.stopPropagation();
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const isRightEdge = (e.clientX - rect.left) > (rect.width - 15);
-                          
-                          setSelectedNoteRef({
-                            trackId: note.trackId,
-                            sectionId: note.sectionId,
-                            noteIndex: note.noteIndex
-                          });
-
-                          setDragState({
-                            noteId: note.id,
-                            trackId: note.trackId,
-                            sectionId: note.sectionId,
-                            noteIndex: note.noteIndex,
-                            sectionStartBeat: note.sectionStartBeat,
-                            type: isRightEdge ? "resize" : "move",
-                            initialX: e.clientX,
-                            initialY: e.clientY,
-                            initialStartBeat: note.startBeat,
-                            initialDurationBeats: note.durationBeats,
-                            initialMidiNum: note.midiNum,
-                            currentStartBeat: note.startBeat,
-                            currentDurationBeats: note.durationBeats,
-                            currentMidiNum: note.midiNum
-                          });
-                        }}
-                        style={{
-                          position: "absolute",
-                          top: `${renderTop + 1 + headerHeight}px`,
-                          left: `${renderLeft}px`,
-                          width: `${renderWidth - 2}px`,
-                          height: `${keyHeight - 2}px`,
-                          cursor: isEditMode ? (isDraggingThis && dragState.type === "resize" ? "ew-resize" : "move") : (isActive ? "pointer" : "default"),
-                          opacity: isDraggingThis ? 1.0 : (0.35 + (note.velocity ?? 0.7) * 0.65)
-                        }}
-                        className={`rounded-md border text-[8px] font-black px-1.5 flex items-center justify-center select-none overflow-hidden transition-all bg-gradient-to-r ${
-                          isActive || isDraggingThis
-                            ? "z-[25] scale-y-[1.15] scale-x-[1.02] brightness-150 ring-2 ring-white/80 shadow-[0_0_25px_rgba(255,255,255,0.6)] border-white" 
-                            : isSelected
-                              ? "z-[20] scale-y-[1.05] scale-x-[1.01] brightness-125 ring-2 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] border-purple-400"
-                              : "z-[15] hover:opacity-100 hover:scale-y-[1.02]"
-                        } ${isEditMode ? "hover:ring-2 hover:ring-purple-400/50" : ""} ${note.color}`}
-                      >
-                        <span className="font-mono flex-shrink-0 text-[8px] drop-shadow-md truncate opacity-90 pointer-events-none">
-                          {note.pitch} <span className="opacity-60 text-[7px] font-sans">({Math.round((note.velocity ?? 0.7) * 100)})</span>
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" align="center" className="text-xs z-[100] shadow-xl pointer-events-none p-2.5 flex flex-col gap-1">
-                      <div className="font-black text-sm">{note.trackName}</div>
-                      <div className="opacity-80">Nota: <span className="font-mono font-bold opacity-100">{note.pitch}</span> <span className="text-[10px] opacity-60">(MIDI: {note.midiNum})</span></div>
-                      <div className="opacity-80">Beat: <span className="font-bold opacity-100">{note.startBeat}</span> | Duración: <span className="font-bold opacity-100">{note.durationBeats}</span></div>
-                      <div className="opacity-80">Dinámica: <span className="font-bold opacity-100">{Math.round((note.velocity ?? 0.7) * 127)} ({Math.round((note.velocity ?? 0.7) * 100)}%)</span></div>
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
-            </TooltipProvider>
+            <MemoizedTrackNotes 
+              trackNotes={trackNotes}
+              midiRange={midiRange}
+              keyHeight={keyHeight}
+              pxPerBeat={pxPerBeat}
+              headerHeight={headerHeight}
+              currentBeat={currentBeat}
+              dragState={dragState}
+              selectedNoteRef={selectedNoteRef}
+              isEditMode={isEditMode}
+              setDragState={setDragState}
+              setSelectedNoteRef={setSelectedNoteRef}
+            />
 
             {/* E. GLOWING PLAYHEAD CURSOR */}
             <div

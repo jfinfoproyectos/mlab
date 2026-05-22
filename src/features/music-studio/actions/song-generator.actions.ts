@@ -159,6 +159,8 @@ REGLAS ESTRICTAS DE CONCISIÓN:
         schema: songBlueprintSchema,
         system: systemPrompt,
         prompt: targetPrompt,
+        abortSignal: AbortSignal.timeout(60000),
+        maxRetries: 0
       });
 
       return {
@@ -232,6 +234,8 @@ Completa entre 3 y 8 secciones lógicas.`;
         model: provider,
         system: systemPrompt,
         prompt: fallbackPrompt,
+        abortSignal: AbortSignal.timeout(45000),
+        maxRetries: 0
       });
 
       const cleanJson = textResult.text.replace(/```json/g, "").replace(/```/g, "").trim();

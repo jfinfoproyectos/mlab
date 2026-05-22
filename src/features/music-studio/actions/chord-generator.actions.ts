@@ -96,6 +96,8 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
         schema: chordProgressionSchema,
         system: systemPrompt,
         prompt: targetPrompt,
+        abortSignal: AbortSignal.timeout(45000),
+        maxRetries: 0
       });
 
       return {
@@ -143,6 +145,8 @@ Completa la progresión con EXACTAMENTE ${count} acordes hermosos y coherentes.`
           model: provider,
           system: systemPrompt,
           prompt: fallbackPrompt,
+          abortSignal: AbortSignal.timeout(35000),
+          maxRetries: 0
           // Sin parametro 'output': generacion de texto plano 100% universal e infalible
         });
 

@@ -9,6 +9,14 @@ export const songInputSchema = z.object({
   structureMode: z.string().optional(),
   chordsMode: z.string().optional(),
   repetitionMode: z.string().optional(),
+  musicStyle: z.string().optional(),
+  autoGenerateRhythm: z.boolean().optional(),
+  rhythmPolyphonic: z.preprocess((val) => {
+    if (typeof val === "string") return val === "true";
+    return val;
+  }, z.boolean()).optional(),
+  rhythmDensity: z.enum(["sparse", "medium", "dense"]).optional(),
+  polyphonicVoices: z.array(z.string()).optional(),
 });
 
 export type SongInput = z.infer<typeof songInputSchema>;
@@ -72,6 +80,8 @@ export const songTrackSchema = z.object({
   soloed: z.boolean().optional().describe("Indica si la pista está en modo solo"),
   isProgressionRhythm: z.boolean().optional().describe("Indica si la pista representa el ritmo de la progresión de acordes"),
   aiSections: z.record(z.string(), z.boolean()).optional().describe("Mapeo de sectionId a boolean indicando si la sección fue generada por IA"),
+  isPolyphonicLayer: z.boolean().optional().describe("Indica si esta pista es una capa polifónica generada por el asistente IA"),
+  polyphonicRole: z.enum(["bass", "melody", "countermelody", "pad"]).optional().describe("Rol musical de la capa polifónica: bass, melody, countermelody o pad"),
 });
 
 export type SongTrack = z.infer<typeof songTrackSchema>;

@@ -407,10 +407,19 @@ export function useSongPlayback(
     activeSongRef.current = songWithTracks;
   }, [setActiveSong]);
 
-  // Pulse MIDI activity lamp
+  const midiActivityTimeoutRef = useRef<any>(null);
+
+  // Pulse MIDI activity lamp with throttling to prevent React render thrashing
   const triggerMidiActivity = () => {
-    setMidiActivity(true);
-    setTimeout(() => setMidiActivity(false), 120);
+    if (!midiActivityTimeoutRef.current) {
+      setMidiActivity(true);
+    } else {
+      clearTimeout(midiActivityTimeoutRef.current);
+    }
+    midiActivityTimeoutRef.current = setTimeout(() => {
+      setMidiActivity(false);
+      midiActivityTimeoutRef.current = null;
+    }, 120);
   };
 
   // Request MIDI Access on mount or when requested
@@ -492,14 +501,14 @@ export function useSongPlayback(
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
-            setActivePlaybackNotes(prev => {
-              if (prev.includes(noteName)) return prev;
-              return [...prev, noteName];
-            });
+            // setActivePlaybackNotes(prev => {
+            //   if (prev.includes(noteName)) return prev;
+            //   return [...prev, noteName];
+            // });
 
             const offTimeout = setTimeout(() => {
               activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-              setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
+              // setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
             }, durationMs);
             subTimeoutsRef.current.push(offTimeout);
           }, Math.max(0, delay));
@@ -545,14 +554,14 @@ export function useSongPlayback(
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
-            setActivePlaybackNotes(prev => {
-              if (prev.includes(noteName)) return prev;
-              return [...prev, noteName];
-            });
+            // setActivePlaybackNotes(prev => {
+            //   if (prev.includes(noteName)) return prev;
+            //   return [...prev, noteName];
+            // });
 
             const offTimeout = setTimeout(() => {
               activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-              setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
+              // setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
             }, durationMs);
             trackTimeoutsRef.current.push(offTimeout);
           }, Math.max(0, delay));
@@ -1724,32 +1733,33 @@ export function useSongPlayback(
     trackTimeoutsRef.current.forEach(clearTimeout);
     trackTimeoutsRef.current = [];
 
-    if (playbackWorkerRef.current) {
-      playbackWorkerRef.current.terminate();
-    }
-    try {
-      const blobCode = `
-        let timerId = null;
-        self.onmessage = function(e) {
-          if (e.data.action === "start") {
-            if (timerId) clearTimeout(timerId);
-            timerId = setTimeout(() => {
-              self.postMessage("tick");
-            }, e.data.delay);
-          } else if (e.data.action === "stop") {
-            if (timerId) {
-              clearTimeout(timerId);
-              timerId = null;
+    if (!playbackWorkerRef.current) {
+      try {
+        const blobCode = `
+          let timerId = null;
+          self.onmessage = function(e) {
+            if (e.data.action === "start") {
+              if (timerId) clearTimeout(timerId);
+              timerId = setTimeout(() => {
+                self.postMessage("tick");
+              }, e.data.delay);
+            } else if (e.data.action === "stop") {
+              if (timerId) {
+                clearTimeout(timerId);
+                timerId = null;
+              }
             }
-          }
-        };
-      `;
-      const blob = new Blob([blobCode], { type: "text/javascript" });
-      const workerUrl = URL.createObjectURL(blob);
-      playbackWorkerRef.current = new Worker(workerUrl);
-    } catch (err) {
-      console.warn("Could not instantiate Web Worker for playback, falling back to standard setTimeout.", err);
-      playbackWorkerRef.current = null;
+          };
+        `;
+        const blob = new Blob([blobCode], { type: "text/javascript" });
+        const workerUrl = URL.createObjectURL(blob);
+        playbackWorkerRef.current = new Worker(workerUrl);
+      } catch (err) {
+        console.warn("Could not instantiate Web Worker for playback, falling back to standard setTimeout.", err);
+        playbackWorkerRef.current = null;
+      }
+    } else {
+      playbackWorkerRef.current.postMessage({ action: "stop" });
     }
 
     let startIdx = 0;
@@ -1763,8 +1773,9 @@ export function useSongPlayback(
       }
     }
 
-    // Initialize the queue time with a 50ms buffer for precise scheduling
-    playbackTimeQueueRef.current = performance.now() + 50;
+    // Initialize the queue time with a 200ms buffer for precise scheduling.
+    // A larger initial buffer prevents stutter caused by React state updates when hitting play.
+    playbackTimeQueueRef.current = performance.now() + 200;
 
     const runPlaybackStep = (currentIdx: number) => {
       if (!isPlayingRef.current) return;
