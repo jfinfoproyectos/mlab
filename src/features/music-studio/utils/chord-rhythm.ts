@@ -1,7 +1,7 @@
 import { SongStructure, SongTrack, SongSection } from "../schemas/song-generator.schema";
 
 export function generateSectionChordRhythmNotes(
-  chords: Array<{ chord: string; pianoNotes: string[] }>,
+  chords: Array<{ chord: string; pianoNotes: string[]; duration?: number }>,
   pattern: string,
   mode: string,
   customSteps: boolean[][],
@@ -53,11 +53,17 @@ export function generateSectionChordRhythmNotes(
     return noteStr;
   };
 
+  let currentBaseBeat = 0;
   chords.forEach((chordObj, chordIdx) => {
     const chordNotes = chordObj.pianoNotes || [];
-    if (chordNotes.length === 0) return;
+    if (chordNotes.length === 0) {
+      currentBaseBeat += chordObj.duration || 4;
+      return;
+    }
 
-    const baseBeat = chordIdx * 4;
+    const baseBeat = currentBaseBeat;
+    const currentChordDuration = chordObj.duration || 4;
+    currentBaseBeat += currentChordDuration;
     const isEvenMeasure = chordIdx % 2 === 1;
 
     const bass = chordNotes[0];
@@ -92,7 +98,7 @@ export function generateSectionChordRhythmNotes(
         notes.push({
           note: n,
           startBeat: baseBeat,
-          durationBeats: 4.0,
+          durationBeats: currentChordDuration,
           velocity: 0.75,
         });
       });
@@ -101,7 +107,7 @@ export function generateSectionChordRhythmNotes(
       notes.push({
         note: bassLower,
         startBeat: baseBeat,
-        durationBeats: 3.8,
+        durationBeats: currentChordDuration - 0.2,
         velocity: 0.8,
       });
 
@@ -594,8 +600,8 @@ export function generateSectionChordRhythmNotes(
         chordNotes.forEach((n) => {
           notes.push({
             note: n,
-            startBeat: baseBeat,
-            durationBeats: 4.0,
+          startBeat: baseBeat,
+            durationBeats: currentChordDuration,
             velocity: 0.75,
           });
         });

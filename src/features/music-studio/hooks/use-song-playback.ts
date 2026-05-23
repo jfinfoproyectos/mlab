@@ -135,6 +135,11 @@ export function useSongPlayback(
   const [selectedArpeggioPattern, setSelectedArpeggioPattern] = useState<string>("up-down");
   const [loopMode, setLoopMode] = useState<"song" | "section" | "off">("off");
   
+  // Humanization
+  const [humanizeAmount, setHumanizeAmount] = useState<number>(0.2);
+  const humanizeAmountRef = useRef<number>(0.2);
+  useEffect(() => { humanizeAmountRef.current = humanizeAmount; }, [humanizeAmount]);
+  
   // Custom sequencers step rhythms matrix (5 instruments x 16 steps)
   const [customRhythmSteps, setCustomRhythmSteps] = useState<boolean[][]>(() =>
     Array(5).fill(null).map(() => Array(16).fill(false))
@@ -163,6 +168,11 @@ export function useSongPlayback(
   const activeMidiNotesRef = useRef<number[]>([]);
   const previouslyPlayedMidiNotesRef = useRef<number[]>([]);
   
+  // Timer Refs
+  const subTimeoutsRef = useRef<any[]>([]);
+  const trackTimeoutsRef = useRef<any[]>([]);
+  const gracefulTimeoutRef = useRef<any>(null);
+  
   // Settings Refs (avoid stale closure overrides)
   const playbackBpmRef = useRef<number>(80);
   const playbackModeRef = useRef<"basic" | "rhythm" | "arpeggio">("basic");
@@ -190,10 +200,6 @@ export function useSongPlayback(
   const playbackWorkerRef = useRef<Worker | null>(null);
   const playbackTimeQueueRef = useRef<number>(0);
 
-  // Sub-timeouts arrays to prevent notes sticking on stop/pause
-  const subTimeoutsRef = useRef<any[]>([]);
-  const trackTimeoutsRef = useRef<any[]>([]);
-  const gracefulTimeoutRef = useRef<any>(null);
 
   // Sync references with React state
   useEffect(() => { activeSongRef.current = activeSong; }, [activeSong]);
@@ -467,34 +473,35 @@ export function useSongPlayback(
     }
   }, [selectedOutputId]);
 
-  const getAudioContext = (): AudioContext => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioContextRef.current.state === "suspended") {
-      audioContextRef.current.resume();
-    }
-    return audioContextRef.current;
-  };
-
   const playSingleNote = (noteName: string, durationMs: number, velocity: number = 1.0, startTimeMs?: number) => {
     try {
       const freq = noteToFreq(noteName);
       if (!freq || isNaN(freq)) return;
 
-      const out = activeOutputPortRef.current || (midiOutputs && midiOutputs[0]);
+      const out = activeOutputPortRef.current;
       if (out) {
         try {
           triggerMidiActivity();
           const midiNum = noteToMidi(noteName);
           const channelIdx = midiChannelRef.current - 1; // 0 to 15
           
-          const scaledVelocity = Math.round(velocity * playbackVolumeRef.current * 127);
+          // Apply Humanization (Groove)
+          const humanize = humanizeAmountRef.current;
+          let jitterMs = 0;
+          let jitterVel = 1.0;
+          if (humanize > 0) {
+            jitterMs = (Math.random() * 40 - 15) * humanize; // -15ms to +25ms
+            jitterVel = 1.0 + (Math.random() * 0.4 - 0.2) * humanize; // +/- 20%
+          }
+          
+          const start = (startTimeMs !== undefined ? startTimeMs : performance.now()) + jitterMs;
+          
+          const scaledVelocity = Math.round(velocity * jitterVel * playbackVolumeRef.current * 127);
           const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
           
-          const start = startTimeMs !== undefined ? startTimeMs : performance.now();
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On (Hardware Precise)
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off (Hardware Precise)
+          // Send to External MIDI
+          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On
+          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off
           
           const delay = start - performance.now();
           const visualTimeout = setTimeout(() => {
@@ -519,7 +526,7 @@ export function useSongPlayback(
       }
       return;
     } catch (e) {
-      console.error("Synth note playback error:", e);
+      console.error("Note playback error:", e);
     }
   };
 
@@ -536,23 +543,32 @@ export function useSongPlayback(
       const freq = noteToFreq(noteName);
       if (!freq || isNaN(freq)) return;
 
-      const out = activeOutputPortRef.current || (midiOutputs && midiOutputs[0]);
+      const out = activeOutputPortRef.current;
       if (out) {
         try {
           triggerMidiActivity();
           const midiNum = noteToMidi(noteName);
           const channelIdx = midiChannelNum - 1; // 0 to 15
 
-          const scaledVelocity = Math.round(velocity * 127);
-          const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
+          // Apply Humanization (Groove)
+          const humanize = humanizeAmountRef.current;
+          let jitterMs = 0;
+          let jitterVel = 1.0;
+          if (humanize > 0) {
+            jitterMs = (Math.random() * 40 - 15) * humanize;
+            jitterVel = 1.0 + (Math.random() * 0.4 - 0.2) * humanize;
+          }
 
-          const start = startTimeMs !== undefined ? startTimeMs : performance.now();
+          const scaledVelocity = Math.round(velocity * jitterVel * 127);
+          const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
+          const start = (startTimeMs !== undefined ? startTimeMs : performance.now()) + jitterMs;
           
+          // Send to External MIDI
           if (sustain) {
             out.send([0xB0 | channelIdx, 64, 127], start); // Sustain Pedal ON
           }
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On (Hardware Precise)
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off (Hardware Precise)
+          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On
+          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off
           if (sustain) {
             out.send([0xB0 | channelIdx, 64, 0], start + durationMs); // Sustain Pedal OFF
           }
@@ -580,7 +596,7 @@ export function useSongPlayback(
       }
       return;
     } catch (e) {
-      console.error("Synth track note playback error:", e);
+      console.error("Track note playback error:", e);
     }
   };
 
@@ -1652,7 +1668,6 @@ export function useSongPlayback(
         subTimeoutsRef.current = [];
         trackTimeoutsRef.current.forEach(clearTimeout);
         trackTimeoutsRef.current = [];
-
         if (activeOutputPortRef.current) {
           try {
             const out = activeOutputPortRef.current;
@@ -1730,8 +1745,6 @@ export function useSongPlayback(
       toast.error("No hay acordes generados en esta canción para reproducir.");
       return;
     }
-
-    getAudioContext();
 
     setIsPlaying(true);
     isPlayingRef.current = true;
@@ -1937,6 +1950,13 @@ export function useSongPlayback(
     }
   }, [isPlaying, startPlayback, stopPlayback]);
 
+  // Detener la reproducción automáticamente cuando se abre una canción diferente
+  useEffect(() => {
+    if (activeSong?.id) {
+      stopPlayback(true);
+    }
+  }, [activeSong?.id, stopPlayback]);
+
   return {
     isPlaying,
     playbackSectionId,
@@ -1963,6 +1983,8 @@ export function useSongPlayback(
     setSavedRhythms,
     newRhythmName,
     setNewRhythmName,
+    humanizeAmount,
+    setHumanizeAmount,
     activePlaybackNotes,
     midiOutputs,
     selectedOutputId,

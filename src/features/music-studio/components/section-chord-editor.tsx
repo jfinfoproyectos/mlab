@@ -251,7 +251,9 @@ export function SectionChordEditor({
                     const minMidi = noteMidiNumbers.length > 0 ? Math.min(...noteMidiNumbers) - 2 : 36;
                     const maxMidi = noteMidiNumbers.length > 0 ? Math.max(...noteMidiNumbers) + 2 : 84;
                     const midiRangeSpan = Math.max(12, maxMidi - minMidi);
-                    const totalBeats = (selectedSection.chordCount ?? 4) * 4 || 16;
+                    const totalBeats = selectedSection.chords?.chords?.length 
+                      ? selectedSection.chords.chords.reduce((acc, c) => acc + (c.duration || 4), 0)
+                      : (selectedSection.chordCount ?? 4) * 4 || 16;
 
                     return (
                       <div 

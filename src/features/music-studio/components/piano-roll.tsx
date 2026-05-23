@@ -210,8 +210,12 @@ function PianoRollComponent({
   const sectionRanges = useMemo(() => {
     let currentAccumulatedBeat = 0;
     return activeSong.sections.map((sec) => {
-      const chordCount = sec.chords?.chords?.length || sec.chordCount || 4;
-      const durationBeats = chordCount * 4; // Each chord takes 4 beats (1 bar)
+      let durationBeats = 0;
+      if (sec.chords?.chords?.length) {
+        durationBeats = sec.chords.chords.reduce((acc, c) => acc + (c.duration || 4), 0);
+      } else {
+        durationBeats = (sec.chordCount || 4) * 4;
+      }
       const range = {
         sectionId: sec.id,
         type: sec.type,
@@ -269,8 +273,11 @@ function PianoRollComponent({
       const range = sectionRanges.find((r) => r.sectionId === sec.id);
       if (!range) return;
       const secChords = sec.chords?.chords || [];
+      let currentChordStart = range.startBeat;
       secChords.forEach((ch, chIdx) => {
-        const chordStartBeat = range.startBeat + chIdx * 4;
+        const chordStartBeat = currentChordStart;
+        const chordDuration = ch.duration || 4;
+        currentChordStart += chordDuration;
         const pianoNotes = ch.pianoNotes || [];
         pianoNotes.forEach((pitch, pitchIdx) => {
           formatted.push({
@@ -278,7 +285,7 @@ function PianoRollComponent({
             pitch,
             midiNum: noteToMidi(pitch),
             startBeat: chordStartBeat,
-            durationBeats: 4, // 1 complete measure
+            durationBeats: chordDuration,
             trackName: ch.chord,
             color: "from-emerald-600/20 to-teal-700/20 dark:from-emerald-500/15 dark:to-teal-600/15 border-emerald-500/30 text-emerald-900/50 dark:text-emerald-50/30"
           });
@@ -352,6 +359,30 @@ function PianoRollComponent({
       n.noteIndex === selectedNoteRef.noteIndex
     ) || null;
   }, [selectedNoteRef, trackNotes]);
+
+  const chordLabels = useMemo(() => {
+    const labels: Array<{ startBeat: number, durationBeats: number, name: string }> = [];
+    activeSong.sections.forEach(sec => {
+      const range = sectionRanges.find(r => r.sectionId === sec.id);
+      if (!range) return;
+      
+      let currentBeat = range.startBeat;
+      if (sec.chords?.chords) {
+        sec.chords.chords.forEach(ch => {
+          const duration = ch.duration || 4;
+          labels.push({ startBeat: currentBeat, durationBeats: duration, name: ch.chord });
+          currentBeat += duration;
+        });
+      } else {
+        const count = sec.chordCount || 4;
+        for (let i = 0; i < count; i++) {
+          labels.push({ startBeat: currentBeat, durationBeats: 4, name: "?" });
+          currentBeat += 4;
+        }
+      }
+    });
+    return labels;
+  }, [activeSong.sections, sectionRanges]);
 
   // 4. Scan note ranges to determine the optimal MIDI range to display
   const midiRange = useMemo(() => {
@@ -569,9 +600,24 @@ function PianoRollComponent({
         const activeSecIndex = activeSong.sections.findIndex((s) => s.id === playbackSectionId);
         let accumulatedStartBeat = 0;
         for (let i = 0; i < activeSecIndex; i++) {
-          accumulatedStartBeat += (activeSong.sections[i].chords?.chords?.length || activeSong.sections[i].chordCount || 4) * 4;
+          const sec = activeSong.sections[i];
+          if (sec.chords?.chords?.length) {
+            accumulatedStartBeat += sec.chords.chords.reduce((acc, c) => acc + (c.duration || 4), 0);
+          } else {
+            accumulatedStartBeat += (sec.chordCount || 4) * 4;
+          }
         }
-        const targetBeat = accumulatedStartBeat + playbackChordIndex * 4;
+        
+        // Calculate target beat based on chord durations up to playbackChordIndex
+        let targetBeat = accumulatedStartBeat;
+        const activeSec = activeSong.sections[activeSecIndex];
+        if (activeSec?.chords?.chords?.length) {
+          for (let c = 0; c < Math.min(playbackChordIndex, activeSec.chords.chords.length); c++) {
+            targetBeat += (activeSec.chords.chords[c].duration || 4);
+          }
+        } else {
+          targetBeat += Math.max(0, playbackChordIndex) * 4;
+        }
         setCurrentBeat(targetBeat);
         if (playheadRef.current) {
           playheadRef.current.style.left = `${targetBeat * pxPerBeat}px`;
@@ -602,10 +648,24 @@ function PianoRollComponent({
     let sectionStartBeat = 0;
     if (activeSecIndex !== -1) {
       for (let i = 0; i < activeSecIndex; i++) {
-        sectionStartBeat += (activeSong.sections[i].chords?.chords?.length || activeSong.sections[i].chordCount || 4) * 4;
+        const sec = activeSong.sections[i];
+        if (sec.chords?.chords?.length) {
+          sectionStartBeat += sec.chords.chords.reduce((acc, c) => acc + (c.duration || 4), 0);
+        } else {
+          sectionStartBeat += (sec.chordCount || 4) * 4;
+        }
       }
     }
-    const stateBeat = sectionStartBeat + Math.max(0, playbackChordIndex) * 4;
+    
+    let stateBeat = sectionStartBeat;
+    const activeSec = activeSong.sections[activeSecIndex];
+    if (activeSec?.chords?.chords?.length) {
+      for (let c = 0; c < Math.min(Math.max(0, playbackChordIndex), activeSec.chords.chords.length); c++) {
+        stateBeat += (activeSec.chords.chords[c].duration || 4);
+      }
+    } else {
+      stateBeat += Math.max(0, playbackChordIndex) * 4;
+    }
     const beatDurationSec = 60 / playbackBpm;
 
     if (!playbackStartRef.current) {
@@ -906,10 +966,27 @@ function PianoRollComponent({
                     left: `${mIdx * 4 * pxPerBeat}px`,
                     width: `${4 * pxPerBeat}px`,
                   }}
-                  className="h-full border-l border-border/40 pl-2 flex items-center"
+                  className="h-full border-l border-border/40 pl-1 flex items-start pt-0.5"
                 >
-                  <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                    Compás {mIdx + 1}
+                  <span className="text-[7px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                    M{mIdx + 1}
+                  </span>
+                </div>
+              ))}
+              
+              {/* Chord Labels overlay */}
+              {chordLabels.map((chord, idx) => (
+                <div
+                  key={`chord-label-${idx}`}
+                  style={{
+                    position: "absolute",
+                    left: `${chord.startBeat * pxPerBeat}px`,
+                    width: `${chord.durationBeats * pxPerBeat}px`,
+                  }}
+                  className="h-full flex items-center justify-center pointer-events-none"
+                >
+                  <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-900/40 px-2 py-[2px] rounded-sm border border-emerald-200 dark:border-emerald-800/60 shadow-sm backdrop-blur-sm truncate max-w-[90%]">
+                    {chord.name}
                   </span>
                 </div>
               ))}

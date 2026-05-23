@@ -57,6 +57,10 @@ interface PlaybackControlsProps {
   loopMode: "song" | "section" | "off";
   setLoopMode: (mode: "song" | "section" | "off") => void;
 
+  // Humanization
+  humanizeAmount: number;
+  setHumanizeAmount: (amount: number) => void;
+
   // Sinfonía AI Modal Trigger
   onOpenTrackComposer: () => void;
 }
@@ -88,6 +92,8 @@ export function PlaybackControls({
   setPlaybackBpm,
   loopMode,
   setLoopMode,
+  humanizeAmount,
+  setHumanizeAmount,
   onOpenTrackComposer
 }: PlaybackControlsProps) {
   return (
@@ -320,6 +326,26 @@ export function PlaybackControls({
                 value={playbackVolume}
                 onChange={(e) => setPlaybackVolume(parseFloat(e.target.value))}
                 className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none"
+              />
+            </div>
+            
+            {/* Real-time Humanization Slider */}
+            <div className="space-y-2 bg-muted/20 dark:bg-zinc-900/20 p-4 rounded-2xl border border-border/40 dark:border-zinc-850/40 sm:col-span-2">
+              <div className="flex justify-between text-xs font-bold text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  Groove / Humanización (Swing & Strum)
+                </span>
+                <span className="font-mono font-black text-purple-650 dark:text-purple-400">{Math.round(humanizeAmount * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={humanizeAmount}
+                onChange={(e) => setHumanizeAmount(parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500 focus:outline-none"
               />
             </div>
           </div>

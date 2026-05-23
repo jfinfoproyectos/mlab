@@ -538,6 +538,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
     setSavedRhythms,
     newRhythmName,
     setNewRhythmName,
+    humanizeAmount,
+    setHumanizeAmount,
     activePlaybackNotes,
     midiOutputs,
     selectedOutputId,
@@ -896,15 +898,27 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
     const isSongTrack = activeSong.tracks?.some(t => t.id === trackId);
     
     if (isSongTrack) {
+      const sourceTrack = activeSong.tracks!.find(t => t.id === trackId);
+      const oldChannel = sourceTrack?.midiChannel || 1;
       const occupiedTrack = activeSong.tracks?.find(t => t.midiChannel === channel && t.id !== trackId);
+      
+      const updatedTracks = activeSong.tracks!.map(t => {
+        if (t.id === trackId) {
+          return { ...t, midiChannel: channel };
+        }
+        if (occupiedTrack && t.id === occupiedTrack.id) {
+          return { ...t, midiChannel: oldChannel };
+        }
+        return t;
+      });
+
       if (occupiedTrack) {
-        toast.info(`El Canal ${channel} ya estaba ocupado por la pista "${occupiedTrack.name}". Ha sido sobrescrita.`);
+        toast.info(`Canales intercambiados: "${occupiedTrack.name}" ahora usa el Canal ${oldChannel}.`);
       }
       
-      const filteredTracks = (activeSong.tracks || []).filter(t => t.id === trackId || t.midiChannel !== channel);
       const updated = {
         ...activeSong,
-        tracks: filteredTracks.map(t => t.id === trackId ? { ...t, midiChannel: channel } : t)
+        tracks: updatedTracks
       };
       setActiveSong(updated);
       activeSongRef.current = updated;
@@ -2164,6 +2178,24 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                     title={`Volumen Maestro: ${Math.round(playbackVolume * 100)}%`}
                   />
                 </div>
+
+                {/* Vertical Separator */}
+                <div className="h-4 w-[1px] bg-border/40 mx-0.5" />
+
+                {/* Humanization Slider */}
+                <div className="flex items-center gap-1.5 bg-muted/40 border border-border/50 rounded-xl px-2.5 h-8">
+                  <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 tracking-wider uppercase font-sans">Human</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={humanizeAmount}
+                    onChange={(e) => setHumanizeAmount(parseFloat(e.target.value))}
+                    className="w-12 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg cursor-pointer accent-purple-500 focus:outline-none"
+                    title={`Humanización / Groove: ${Math.round(humanizeAmount * 100)}%`}
+                  />
+                </div>
               </div>
             )}
 
@@ -2373,7 +2405,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                             onChange={(e) => setSelectedOutputId(e.target.value)}
                             className="w-full rounded-xl border border-border bg-background text-foreground h-9 px-3 text-[11px] font-semibold focus:outline-none hover:bg-muted transition-colors cursor-pointer"
                           >
-                            <option value="">🚫 Ninguno (Instrumento Web)</option>
+                            <option value="">🔇 Ninguno (Silencio)</option>
                             {midiOutputs.map((output) => (
                               <option key={output.id} value={output.id}>
                                 🎛️ {output.name}

@@ -405,6 +405,7 @@ export async function generateSectionTrackAction(params: {
     chord: string;
     pianoNotes: string[];
     role: string;
+    duration?: number;
   }>;
   trackName: string;
   midiChannel: number;
@@ -414,6 +415,7 @@ export async function generateSectionTrackAction(params: {
     chord: string;
     pianoNotes: string[];
     role: string;
+    duration?: number;
   }>;
   previousSectionNotes?: Array<{
     note: string;
@@ -426,6 +428,7 @@ export async function generateSectionTrackAction(params: {
     chord: string;
     pianoNotes: string[];
     role: string;
+    duration?: number;
   }>;
   progressionRhythmNotes?: Array<{
     note: string;
@@ -457,7 +460,7 @@ export async function generateSectionTrackAction(params: {
     midiReferencePattern
   } = params;
 
-  const totalBeats = chordsList.length * 4; // Each chord in our DAW is exactly 4 beats long
+  const totalBeats = chordsList.reduce((acc, c) => acc + (c.duration || 4), 0);
 
   console.log(`[AI Multitrack] Generating track "${trackName}" for section "${sectionType}" (${songTitle})`);
 
@@ -469,11 +472,23 @@ export async function generateSectionTrackAction(params: {
       .map((c, idx) => `Acorde ${idx + 1}: ${c.chord} (Notas: ${c.pianoNotes.join(", ")}, Función: ${c.role})`)
       .join("\n");
 
+    let currentStart = 0;
     const chordCoverageInstructions = chordsList.map((c, idx) => {
-      const start = idx * 4;
-      const end = start + 4;
+      const start = currentStart;
+      const duration = c.duration || 4;
+      const end = start + duration;
+      currentStart = end;
       return `- Acorde ${idx + 1} (${c.chord}): Genera OBLIGATORIAMENTE entre 2 y 5 notas con 'startBeat' entre los tiempos ${start.toFixed(1)} y ${(end - 0.1).toFixed(1)} (que es el intervalo en el que suena este acorde).`;
     }).join("\n");
+
+    let gridStart = 0;
+    const gridTemporal = chordsList.map((c, idx) => {
+      const start = gridStart;
+      const duration = c.duration || 4;
+      const end = start + duration;
+      gridStart = end;
+      return `- Chord ${idx + 1} (${c.chord}): tiempos ${start.toFixed(1)} a ${end.toFixed(1)}.`;
+    }).join("\n    ");
 
     let ornamentalTheoryBlock = "";
     if (useOrnamentalNotes && ornamentalTypes.length > 0) {
@@ -553,11 +568,8 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
 
     INFORMACIÓN DEL GRID TEMPORAL:
     - La sección dura exactamente ${totalBeats} tiempos/negras.
-    - Cada acorde de la progresión dura exactamente 4 tiempos en nuestro secuenciador.
-    - Chord 1 (Primer Acorde): tiempos 0.0 a 4.0.
-    - Chord 2 (Segundo Acorde): tiempos 4.0 a 8.0.
-    - Chord 3 (Tercer Acorde): tiempos 8.0 a 12.0.
-    - Chord 4 (Cuarto Acorde): tiempos 12.0 a 16.0 (y así sucesivamente si hay más acordes).
+    - La progresión de acordes tiene las siguientes ubicaciones temporales:
+    ${gridTemporal}
 
     DISTRIBUCIÓN OBLIGATORIA DE NOTAS POR ACORDE (CRÍTICO):
     Debes componer y distribuir notas para la totalidad de la progresión. Específicamente, debes asegurarte de colocar notas en el rango de tiempo de cada acorde. No dejes acordes vacíos sin melodía:
@@ -606,7 +618,7 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
          * "G2" / "A2" / "B2" / "C3" (Pitches 43, 45, 47, 48) para Toms (Tom Grave, Medio y Agudo) para redobles.
     7. Para la pista "Ritmo de Progresión" o pistas de teclado rítmico armónico (Comping):
        - BASE ARMÓNICA ESTRICTA: La base de TODAS las notas que generes DEBE ser las pianoNotes exactas del acorde activo. Son tu vocabulario armónico primario e irrenunciable.
-       - ESTRUCTURA POR COMPÁS: Para cada acorde (cada 4 tiempos), debes usar las pianoNotes exactas proporcionadas para ese acorde. Por ejemplo, si el Acorde 1 tiene pianoNotes ["C3", "E3", "G3", "C4"], esas son las notas con las que construyes el acompañamiento rítmico de los tiempos 0.0 a 4.0.
+       - ESTRUCTURA POR ACORDE: Para cada acorde (durante sus tiempos designados), debes usar las pianoNotes exactas proporcionadas para ese acorde. Por ejemplo, si el Acorde 1 tiene pianoNotes ["C3", "E3", "G3", "C4"], esas son las notas con las que construyes el acompañamiento rítmico durante la duración de ese acorde.
        - MANO IZQUIERDA (BAJO): Toca la primera pianoNote (nota más grave del acorde, típicamente la fundamental) una octava abajo (C2-C3) en el tiempo fuerte de cada compás para dar profundidad.
        - MANO DERECHA (VOICING): Usa las demás pianoNotes del acorde para crear el patrón rítmico (arpegios, síncopas, acordes en bloque a contratiempo, etc.) en el rango C3-C5.
        - NOTAS DE ADORNO (SOLO SI ESTÁN HABILITADAS): Si la Teoría Musical Avanzada está activada, puedes incluir notas de paso, cromáticas o extensiones SOLO en tiempos débiles (fracciones como 0.25, 0.75, 1.5, etc.), pero siempre resolviendo a una pianoNote del acorde activo en el siguiente tiempo fuerte. Las notas de adorno NO deben superar el 30% del total de notas del compás.

@@ -73,8 +73,8 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
 - 'theoryExplanation': Explicación teórica detallada sobre las tensiones y resoluciones de toda la progresión. MÁXIMO 60 palabras.
 - 'voicing': MÁXIMO 2 palabras (ej: 'Drop 2', 'Close').
 - 'inversion': MÁXIMO 2 palabras (ej: 'Fundamental', '1ra Inversión').
-- 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).`;
-
+- 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).
+- RITMO ARMÓNICO VARIABLE (CRÍTICO): Debes asignar una 'duration' a cada acorde de forma inteligente y realista para la progresión (en tiempos/beats). No asumas que todo dura 4 tiempos. Puedes usar 1, 2, 3, 4 o fracciones (0.5, 1.5). La suma de la duración de todos los acordes representará el total de tiempos de la sección. Ajusta la velocidad armónica (armonía rítmica) al género.`;
 
     // Build target user prompt respecting key, scale, and tempo
     let targetPrompt = `Genera una progresión de exactamente ${count} acordes basada en el prompt: "${validated.prompt}".\n`;
