@@ -1,5 +1,5 @@
 import { getSession } from "@/proxy";
-import { ChordGenerator } from "@/features/music-studio";
+import { ChordGenerator } from "@/features/chord-generator";
 import { redirect } from "next/navigation";
 
 export const metadata = {

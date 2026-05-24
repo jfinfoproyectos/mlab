@@ -1,5 +1,5 @@
 import { streamText } from "ai";
-import { getActiveAiProvider } from "@/features/music-studio/services/ai-provider.service";
+import { getActiveAiProvider } from "@/features/ai-assistant/services/ai-provider.service";
 
 export const maxDuration = 30;
 

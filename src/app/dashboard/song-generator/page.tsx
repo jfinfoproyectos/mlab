@@ -1,5 +1,6 @@
 import { getSession } from "@/proxy";
-import { SongGenerator, AiConfigService } from "@/features/music-studio";
+import { SongGenerator } from "@/features/song-composer";
+import { AiConfigService } from "@/features/ai-assistant";
 import { redirect } from "next/navigation";
 
 export const metadata = {

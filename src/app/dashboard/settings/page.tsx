@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { AiConfigService, AiConfigForm } from "@/features/music-studio";
+import { AiConfigService, AiConfigForm } from "@/features/ai-assistant";
 
 export default async function AdminSettingsPage() {
   const session = await getSession();
