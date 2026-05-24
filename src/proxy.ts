@@ -23,11 +23,15 @@ export async function proxy(request: NextRequest) {
 
   // 1. Handle root redirect for logged-in users
   if (pathname === "/") {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-    if (session) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+      if (session) {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+    } catch (error) {
+      console.error("Middleware getSession error:", error);
     }
   }
 
@@ -37,11 +41,16 @@ export async function proxy(request: NextRequest) {
   );
 
   if (matchedPath) {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
 
-    if (!session) {
+      if (!session) {
+        return NextResponse.redirect(new URL("/sign-in", request.url));
+      }
+    } catch (error) {
+      console.error("Middleware getSession error:", error);
       return NextResponse.redirect(new URL("/sign-in", request.url));
     }
   }
@@ -54,9 +63,14 @@ export async function proxy(request: NextRequest) {
  */
 
 export async function getSession() {
-  return await auth.api.getSession({
-    headers: await headers(),
-  });
+  try {
+    return await auth.api.getSession({
+      headers: await headers(),
+    });
+  } catch (error) {
+    console.error("Failed to get session in getSession utility:", error);
+    return null;
+  }
 }
 
 export async function requireSession() {

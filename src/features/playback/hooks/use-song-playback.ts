@@ -433,7 +433,7 @@ export function useSongPlayback(
       return;
     }
     try {
-      const access = await navigator.requestMIDIAccess();
+      const access = await navigator.requestMIDIAccess({ sysex: true, software: true });
       midiAccessRef.current = access;
       setIsMidiSupported(true);
 
@@ -463,8 +463,16 @@ export function useSongPlayback(
     ) as any;
 
     if (selectedPort) {
-      activeOutputPortRef.current = selectedPort;
-      console.log(`MIDI Output connected: ${selectedPort.name}`);
+      activeOutputPortRef.current = selectedPort; // Asignar inmediatamente
+      if (typeof selectedPort.open === 'function') {
+        selectedPort.open().then(() => {
+          console.log(`MIDI Output connected: ${selectedPort.name}`);
+        }).catch((e: any) => {
+          console.warn("Could not explicitly open port, proceeding anyway:", e);
+        });
+      } else {
+        console.log(`MIDI Output connected: ${selectedPort.name}`);
+      }
     } else {
       activeOutputPortRef.current = null;
     }
@@ -490,23 +498,26 @@ export function useSongPlayback(
           const scaledVelocity = Math.round(velocity * jitterVel * playbackVolumeRef.current * 127);
           const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
           
-          // Send to External MIDI
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off
-          
           const delay = start - performance.now();
           const visualTimeout = setTimeout(() => {
+            // Send Note On precisely from Web Worker to bypass Windows Web MIDI queue dropping bugs
+            if (activeOutputPortRef.current) {
+              try {
+                activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity]));
+              } catch (err) {}
+            }
+
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
-            // setActivePlaybackNotes(prev => {
-            //   if (prev.includes(noteName)) return prev;
-            //   return [...prev, noteName];
-            // });
 
             const offTimeout = setTimeout(() => {
+              if (activeOutputPortRef.current) {
+                try {
+                  activeOutputPortRef.current.send(new Uint8Array([0x80 | channelIdx, midiNum, 0x00]));
+                } catch (err) {}
+              }
               activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-              // setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
             }, durationMs);
             subTimeoutsRef.current.push(offTimeout);
           }, Math.max(0, delay));
@@ -548,29 +559,31 @@ export function useSongPlayback(
           const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
           const start = (startTimeMs !== undefined ? startTimeMs : performance.now()) + jitterMs;
           
-          // Send to External MIDI
-          if (sustain) {
-            out.send([0xB0 | channelIdx, 64, 127], start); // Sustain Pedal ON
-          }
-          out.send([0x90 | channelIdx, midiNum, finalVelocity], start); // Note On
-          out.send([0x80 | channelIdx, midiNum, 0x00], start + durationMs); // Note Off
-          if (sustain) {
-            out.send([0xB0 | channelIdx, 64, 0], start + durationMs); // Sustain Pedal OFF
-          }
-
           const delay = start - performance.now();
           const visualTimeout = setTimeout(() => {
+            if (activeOutputPortRef.current) {
+              try {
+                if (sustain) {
+                  activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 127])); // Sustain Pedal ON
+                }
+                activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity])); // Note On
+              } catch (err) {}
+            }
+
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
-            // setActivePlaybackNotes(prev => {
-            //   if (prev.includes(noteName)) return prev;
-            //   return [...prev, noteName];
-            // });
 
             const offTimeout = setTimeout(() => {
+              if (activeOutputPortRef.current) {
+                try {
+                  activeOutputPortRef.current.send(new Uint8Array([0x80 | channelIdx, midiNum, 0x00])); // Note Off
+                  if (sustain) {
+                    activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 0])); // Sustain Pedal OFF
+                  }
+                } catch (err) {}
+              }
               activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
-              // setActivePlaybackNotes(prev => prev.filter(n => n !== noteName));
             }, durationMs);
             trackTimeoutsRef.current.push(offTimeout);
           }, Math.max(0, delay));

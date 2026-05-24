@@ -2374,22 +2374,6 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                     <span className="text-[10px] text-amber-500/90 italic px-1">Sin MIDI</span>
                   )}
                 </div>
-                
-                {selectedOutputId && (
-                  <div className="flex items-center gap-1 bg-muted/40 border border-border/50 rounded-xl px-2 h-8">
-                    <span className="text-[9px] font-black text-muted-foreground uppercase">CH</span>
-                    <select
-                      value={midiChannel}
-                      onChange={(e) => setMidiChannel(parseInt(e.target.value, 10))}
-                      className="bg-transparent text-[10px] font-bold text-foreground focus:outline-none cursor-pointer select-none"
-                      title="Canal MIDI Global"
-                    >
-                      {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                        <option key={ch} value={ch}>{ch}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
               </div>
             )}
 
