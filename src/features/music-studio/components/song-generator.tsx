@@ -72,11 +72,13 @@ import {
   MessageSquare,
   Send,
   Bot,
-  User
+  User,
+  Presentation
 } from "lucide-react";
 
 
 import { SongLibrary } from "./song-library";
+import { PerformanceView } from "./performance-view";
 import { ProgressionRhythmDialog, type AiRhythmOptions } from "./progression-rhythm-dialog";
 import { SongComposerForm } from "./song-composer-form";
 import { SidebarSongLibrary } from "./sidebar-song-library";
@@ -2404,6 +2406,19 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               <Tooltip>
                 <TooltipTrigger asChild>
                   <TabsTrigger 
+                    value="performance" 
+                    disabled={!activeSong}
+                    className="rounded-xl w-8 h-8 p-0 flex items-center justify-center data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200 disabled:opacity-50"
+                  >
+                    <Presentation className="w-3.5 h-3.5 text-primary" />
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Modo Interpretación</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger 
                     value="biblioteca" 
                     className="rounded-xl w-8 h-8 p-0 flex items-center justify-center data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm transition-all duration-200"
                   >
@@ -2938,10 +2953,10 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
           )}
 
           {/* RIGHT VIEWING PANEL: Studio, PianoRoll, Library */}
-          <div className="flex-1 flex flex-col overflow-y-auto w-full p-6 relative h-full">
+          <div className="flex-1 flex flex-col overflow-y-auto w-full relative h-full">
             
             {/* Tab 1: Studio Composer Workbench */}
-            <TabsContent value="estudio" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col">
+            <TabsContent value="estudio" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col p-6">
           <div className="w-full space-y-6">
             {!activeSong ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
@@ -3046,7 +3061,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         </TabsContent>
 
         {/* Tab 3: Interactive Piano Roll View */}
-        <TabsContent value="pianoroll" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col w-full h-full">
+        <TabsContent value="pianoroll" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col w-full h-full p-6">
           {activeSong && activeTab === "pianoroll" ? (
             <PianoRoll
               activeSong={activeSong}
@@ -3074,8 +3089,34 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
           )}
         </TabsContent>
 
+        {/* Tab 4: Interactive Performance Mode */}
+        <TabsContent value="performance" className="mt-0 focus-visible:outline-none focus-visible:ring-0 flex-1 flex flex-col w-full h-full p-6">
+          {activeSong && activeTab === "performance" ? (
+            <PerformanceView
+              activeSong={activeSong}
+              isPlaying={isPlaying}
+              playbackSectionId={playbackSectionId}
+              playbackChordIndex={playbackChordIndex}
+              playbackBpm={playbackBpm}
+              activePlaybackNotes={Array.from(activePlaybackNotes)}
+              togglePlayback={togglePlayback}
+              stopPlayback={stopPlayback}
+              setPlaybackSectionId={setPlaybackSectionId}
+              setPlaybackChordIndex={setPlaybackChordIndex}
+            />
+          ) : activeSong ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
+              <h3 className="text-xl font-bold">Cargando Modo Interpretación...</h3>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-dashed border-border/70 bg-card/25 backdrop-blur-sm p-8 space-y-4">
+              <h3 className="text-xl font-bold">Carga una canción para entrar al Modo Interpretación</h3>
+            </div>
+          )}
+        </TabsContent>
+
         {/* Tab 2: Premium Visual Project Library Explorer */}
-        <TabsContent value="biblioteca" className="mt-6 focus-visible:outline-none focus-visible:ring-0">
+        <TabsContent value="biblioteca" className="mt-6 focus-visible:outline-none focus-visible:ring-0 p-6">
           <SongLibrary
             isLoadingSongs={isLoadingSongs}
             savedSongs={savedSongs}

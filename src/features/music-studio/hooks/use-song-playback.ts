@@ -1699,8 +1699,11 @@ export function useSongPlayback(
     trackTimeoutsRef.current.forEach(clearTimeout);
     trackTimeoutsRef.current = [];
 
-    setPlaybackChordIndex(-1);
-    setPlaybackSectionId(null);
+    if (!keepCursor) {
+      setPlaybackChordIndex(-1);
+      setPlaybackSectionId(null);
+    }
+    
     setActivePlaybackNotes([]);
     activePlaybackNotesRef.current = [];
 
@@ -1949,9 +1952,14 @@ export function useSongPlayback(
     runPlaybackStep(startIdx);
   }, [getPlayableChords, stopPlayback, playbackSectionId, playbackChordIndex, clearTimeout]);
 
-  const togglePlayback = useCallback((targetSectionId: string | null = null) => {
+  const togglePlayback = useCallback((eOrSectionId?: string | React.MouseEvent | null) => {
+    let targetSectionId: string | null = null;
+    if (typeof eOrSectionId === 'string') {
+      targetSectionId = eOrSectionId;
+    }
+    
     if (isPlaying) {
-      stopPlayback();
+      stopPlayback(false, true); // keep cursor
     } else {
       startPlayback(targetSectionId);
     }

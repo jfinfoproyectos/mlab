@@ -10,7 +10,8 @@ import {
   Volume2, 
   VolumeX, 
   Sliders, 
-  Music 
+  Music,
+  Keyboard
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,7 +95,8 @@ export function PlaybackControls({
   setLoopMode,
   humanizeAmount,
   setHumanizeAmount,
-  onOpenTrackComposer
+  onOpenTrackComposer,
+  onOpenPerformanceMode
 }: PlaybackControlsProps) {
   return (
     <Card className="border-border/40 shadow-2xl rounded-3xl bg-card/50 dark:bg-zinc-950/40 text-foreground p-6 space-y-6 backdrop-blur-xl relative overflow-hidden border">
@@ -171,6 +173,7 @@ export function PlaybackControls({
               <Music className="w-4 h-4 fill-white animate-pulse" />
               SINFONÍA AI (PISTAS)
             </Button>
+
           </div>
 
           {/* Row 2: Selectors & Loops */}
