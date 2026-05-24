@@ -1524,6 +1524,58 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
 
   // Submit form: Generate Song Blueprint and compile sections
+  const handleCreateEmptySong = () => {
+    const newSongId = crypto.randomUUID();
+    const newSectionId = crypto.randomUUID();
+    const newSong: SongStructure = {
+      id: newSongId,
+      title: "Nueva Canción Manual",
+      genre: "Custom",
+      key: "C",
+      tempo: 120,
+      description: "Proyecto creado manualmente",
+      sections: [
+        {
+          id: newSectionId,
+          type: "Intro",
+          prompt: "Sección inicial",
+          key: "C",
+          scale: "Mayor / Jónico",
+          chordCount: 4,
+          chords: { 
+            name: "Progresión Inicial",
+            description: "Acordes iniciales del proyecto",
+            key: "C",
+            tempo: 120,
+            theoryExplanation: "Inicio manual",
+            chords: [] 
+          },
+          tracks: []
+        }
+      ],
+      tracks: [
+        {
+          id: `track-rhythm-progression-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: "Ritmo de Progresión (Polifónico)",
+          midiChannel: 1,
+          instrumentPreset: "grand-piano",
+          volume: 0.75,
+          prompts: {},
+          sectionNotes: {},
+          isProgressionRhythm: true,
+          aiSections: {}
+        }
+      ]
+    };
+    
+    applyLoadedSong(newSong);
+    setActiveSong(newSong);
+    setActiveSectionId(newSectionId);
+    setActiveTab("estudio");
+    setIsComposerOpen(false);
+    toast.success("¡Proyecto vacío creado! Empieza a componer.");
+  };
+
   const onSubmit = async (data: SongInput) => {
     if (aiProcess) return;
     setLoading(true);
@@ -1817,6 +1869,125 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
 
   // Trigger individual section regeneration along with all synchronized melody tracks (except percussion)
+  const handleAddManualSection = () => {
+    if (!activeSong) return;
+    const newSectionId = crypto.randomUUID();
+    const newSection: SongSection = {
+      id: newSectionId,
+      type: `Sección ${activeSong.sections.length + 1}`,
+      prompt: "Sección manual",
+      key: activeSong.key,
+      scale: "Mayor / Jónico",
+      chordCount: 4,
+      chords: { 
+        name: "Progresión Manual",
+        description: "Acordes añadidos manualmente",
+        key: activeSong.key,
+        tempo: activeSong.tempo,
+        theoryExplanation: "Armonía construida por el usuario",
+        chords: [] 
+      },
+      tracks: []
+    };
+    const updatedSong = {
+      ...activeSong,
+      sections: [...activeSong.sections, newSection]
+    };
+    setActiveSong(updatedSong);
+    applyLoadedSong(updatedSong);
+    setActiveSectionId(newSectionId);
+    toast.success("Sección manual añadida");
+  };
+
+  const handleDeleteSection = (sectionId: string) => {
+    if (!activeSong) return;
+    if (activeSong.sections.length <= 1) {
+      toast.error("No puedes eliminar la única sección del proyecto");
+      return;
+    }
+    const updatedSections = activeSong.sections.filter(s => s.id !== sectionId);
+    const updatedSong = {
+      ...activeSong,
+      sections: updatedSections
+    };
+    setActiveSong(updatedSong);
+    applyLoadedSong(updatedSong);
+    if (activeSectionId === sectionId) {
+      setActiveSectionId(updatedSections[0].id);
+    }
+    toast.success("Sección eliminada");
+  };
+
+  const handleUpdateSectionChords = (sectionId: string, chordsList: any[]) => {
+    if (!activeSong) return;
+    const updatedSections = activeSong.sections.map(s => {
+      if (s.id === sectionId) {
+        return {
+          ...s,
+          chords: {
+            name: s.chords?.name || "Progresión Editada",
+            description: s.chords?.description || "Acordes modificados manualmente",
+            key: s.chords?.key || activeSong.key,
+            tempo: s.chords?.tempo || activeSong.tempo,
+            theoryExplanation: s.chords?.theoryExplanation || "Armonía modificada manualmente",
+            chords: chordsList
+          }
+        };
+      }
+      return s;
+    });
+    
+    // Al editar manualmente acordes, las pistas que tengan notas generadas para esta sección 
+    // deberían invalidarse o al menos advertir al usuario, pero por ahora solo actualizamos los acordes.
+    const updatedSong = {
+      ...activeSong,
+      sections: updatedSections,
+      tracks: (activeSong.tracks || []).map(t => {
+        if (t.isProgressionRhythm) {
+          const aiSections = { ...(t.aiSections || {}) };
+          delete aiSections[sectionId];
+          return { ...t, aiSections };
+        }
+        return t;
+      })
+    };
+    
+    // Sincronizar automáticamente la pista de ritmo para que los acordes nuevos suenen
+    const syncedSong = syncChordRhythmTrackNotes(
+      updatedSong,
+      "block-basic",
+      "basic",
+      [],
+      "up"
+    );
+    
+    setActiveSong(syncedSong);
+    applyLoadedSong(syncedSong);
+    toast.success("Acordes actualizados manualmente");
+  };
+
+  const handleUpdateTheoryExplanation = (sectionId: string, explanation: string) => {
+    if (!activeSong) return;
+    const updatedSections = activeSong.sections.map(s => {
+      if (s.id === sectionId && s.chords) {
+        return {
+          ...s,
+          chords: {
+            name: s.chords.name ?? "Progresión",
+            description: s.chords.description ?? "",
+            key: s.chords.key ?? activeSong.key,
+            tempo: s.chords.tempo ?? activeSong.tempo,
+            chords: s.chords.chords ?? [],
+            theoryExplanation: explanation,
+          },
+        };
+      }
+      return s;
+    });
+    setActiveSong({ ...activeSong, sections: updatedSections });
+    toast.success("Análisis armónico actualizado");
+  };
+
   const handleRegenerateSection = async (section: SongSection) => {
     if (!activeSong || aiProcess) return;
     const toastId = `section-regen-${section.id}`;
@@ -2329,6 +2500,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                       <SongComposerForm
                         loading={loading}
                         onGenerateSong={onSubmit}
+                        onCreateEmptySong={handleCreateEmptySong}
                         onImportSong={(song) => {
                           applyLoadedSong(song);
                           setActiveSectionId(song.sections[0]?.id || null);
@@ -2840,6 +3012,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                     handleRegenerateSection={handleRegenerateSection}
                     loading={loading || !!aiProcess}
                     playbackSectionId={playbackSectionId}
+                    onAddSection={handleAddManualSection}
+                    onDeleteSection={handleDeleteSection}
                   />
 
                   {selectedSection && (
@@ -2859,7 +3033,10 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                           setIsSectionRegenOpen(true);
                         }
                       }}
+                      onRegenerateSectionClick={handleRegenerateSection}
                       onResetSectionSyncClick={handleResetSectionSync}
+                      onUpdateChords={handleUpdateSectionChords}
+                      onUpdateTheoryExplanation={handleUpdateTheoryExplanation}
                       isAiLoading={!!aiProcess}
                     />
                   )}

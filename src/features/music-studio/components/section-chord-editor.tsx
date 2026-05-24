@@ -1,11 +1,14 @@
-import React from "react";
-import { BookOpen, AlertCircle, Play, Music, Sliders, Activity, Sparkles, Plus } from "lucide-react";
+import React, { useTransition } from "react";
+import { BookOpen, AlertCircle, Play, Music, Sliders, Activity, Sparkles, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { parseChordToNotes } from "../utils/chord-parser";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PianoKeyboard } from "./piano-keyboard";
+import { ManualChordBuilderDialog } from "./manual-chord-builder-dialog";
 import { SongSection, SongTrack } from "../schemas/song-generator.schema";
+import { analyzeProgressionAction } from "../actions/chord-suggestions.actions";
 
 interface SectionChordEditorProps {
   selectedSection: SongSection;
@@ -13,7 +16,10 @@ interface SectionChordEditorProps {
   getRoleColor: (role: string) => string;
   tracks?: SongTrack[];
   onRegenerateTrackSectionClick?: (trackId: string, sectionId: string) => void;
+  onRegenerateSectionClick?: (section: SongSection) => void;
   onResetSectionSyncClick?: (trackId: string, sectionId: string) => void;
+  onUpdateChords?: (sectionId: string, chords: any[]) => void;
+  onUpdateTheoryExplanation?: (sectionId: string, explanation: string) => void;
   isAiLoading?: boolean;
 }
 
@@ -51,10 +57,92 @@ export function SectionChordEditor({
   getRoleColor,
   tracks = [],
   onRegenerateTrackSectionClick,
+  onRegenerateSectionClick,
   onResetSectionSyncClick,
+  onUpdateChords,
+  onUpdateTheoryExplanation,
   isAiLoading = false,
 }: SectionChordEditorProps) {
   const isGenerating = generatingSectionIds[selectedSection.id];
+  const [isBuilderOpen, setIsBuilderOpen] = React.useState(false);
+  const [builderTargetIndex, setBuilderTargetIndex] = React.useState<number | null>(null);
+  const [builderInitialData, setBuilderInitialData] = React.useState<{ chord: string, duration: number } | undefined>(undefined);
+  const [analyzeError, setAnalyzeError] = React.useState<string | null>(null);
+  const [isPendingAnalysis, startAnalysisTransition] = useTransition();
+
+  const handleAnalyzeProgression = () => {
+    const chords = selectedSection.chords?.chords || [];
+    if (chords.length === 0) return;
+    setAnalyzeError(null);
+    startAnalysisTransition(async () => {
+      const result = await analyzeProgressionAction({
+        chords: chords.map((c: any) => ({
+          chord: c.chord,
+          role: c.role,
+          romanNumeral: c.romanNumeral,
+          duration: c.duration,
+        })),
+        sectionKey: selectedSection.key || "C",
+        sectionType: selectedSection.type,
+      });
+      if (result.success && result.theoryExplanation) {
+        onUpdateTheoryExplanation?.(selectedSection.id, result.theoryExplanation);
+      } else {
+        setAnalyzeError(result.error || "Error al analizar.");
+      }
+    });
+  };
+
+  const handleSaveBuilder = (data: { chord: string, duration: number }) => {
+    if (!onUpdateChords) return;
+    const currentChords = selectedSection.chords?.chords || [];
+    const newChords = [...currentChords];
+    
+    if (builderTargetIndex !== null && builderTargetIndex >= 0 && builderTargetIndex < newChords.length) {
+      newChords[builderTargetIndex] = {
+        ...newChords[builderTargetIndex],
+        chord: data.chord,
+        duration: data.duration,
+        pianoNotes: parseChordToNotes(data.chord)
+      };
+    } else {
+      newChords.push({
+        chord: data.chord,
+        duration: data.duration,
+        role: "Manual",
+        romanNumeral: "?",
+        suggestedScale: "Mayor",
+        pianoNotes: parseChordToNotes(data.chord),
+        description: "Acorde construido manualmente",
+        voicing: "Basic",
+        inversion: "Root"
+      });
+    }
+    onUpdateChords(selectedSection.id, newChords);
+  };
+
+  const handleDeleteChord = (idx: number) => {
+    if (!onUpdateChords || !selectedSection.chords) return;
+    const newChords = selectedSection.chords.chords.filter((_, i) => i !== idx);
+    onUpdateChords(selectedSection.id, newChords);
+  };
+
+  const openBuilderForAdd = () => {
+    setBuilderTargetIndex(null);
+    setBuilderInitialData(undefined);
+    setIsBuilderOpen(true);
+  };
+
+  const openBuilderForEdit = (idx: number, chord: string, duration: number) => {
+    setBuilderTargetIndex(idx);
+    setBuilderInitialData({ chord, duration });
+    setIsBuilderOpen(true);
+  };
+
+  const previousChords = React.useMemo(
+    () => (selectedSection.chords?.chords || []).map((c: any) => c.chord as string),
+    [selectedSection.chords]
+  );
 
   return (
     <div className="space-y-6 pt-4 border-t border-border/40">
@@ -81,12 +169,33 @@ export function SectionChordEditor({
             IA componiendo la progresión perfecta para la sección {selectedSection.type}...
           </p>
         </div>
-      ) : !selectedSection.chords ? (
-        <div className="text-center py-14 rounded-2xl border border-dashed border-border bg-card/10 p-6 space-y-3">
+      ) : !selectedSection.chords || selectedSection.chords.chords.length === 0 ? (
+        <div className="text-center py-14 rounded-2xl border border-dashed border-border bg-card/10 p-6 space-y-4">
           <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
           <p className="text-xs text-muted-foreground">
-            No hay acordes disponibles para esta sección. Haz clic en el botón de regenerar para crearlos.
+            No hay acordes disponibles para esta sección. Puedes generarlos con IA o añadirlos manualmente.
           </p>
+          <div className="flex justify-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onRegenerateSectionClick && onRegenerateSectionClick(selectedSection)}
+              className="rounded-xl border-primary/20 text-primary hover:bg-primary/10 flex items-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Generar con IA
+            </Button>
+            {onUpdateChords && (
+              <Button
+                type="button"
+                onClick={openBuilderForAdd}
+                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Añadir Manualmente
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
         <Tabs defaultValue="chords" className="w-full space-y-6">
@@ -100,17 +209,43 @@ export function SectionChordEditor({
           </TabsList>
 
           <TabsContent value="chords" className="space-y-8 focus-visible:outline-none focus-visible:ring-0">
-            {/* Detailed theory analysis box */}
-            {selectedSection.chords.theoryExplanation && (
-              <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5 space-y-2 relative overflow-hidden shadow-inner">
+            {/* Detailed theory analysis box — always visible when there are chords */}
+            {selectedSection.chords?.chords?.length > 0 && (
+              <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5 space-y-3 relative overflow-hidden shadow-inner">
                 <div className="absolute right-0 top-0 translate-x-3 -translate-y-3 w-20 h-20 bg-primary/5 rounded-full blur-2xl pointer-events-none" />
-                <h5 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-primary" />
-                  Análisis Armónico y Conducción de Voces ({selectedSection.type})
-                </h5>
-                <p className="text-sm text-foreground/80 leading-relaxed italic">
-                  "{selectedSection.chords.theoryExplanation}"
-                </p>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <BookOpen className="w-4 h-4 text-primary" />
+                    Análisis Armónico y Conducción de Voces ({selectedSection.type})
+                  </h5>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAnalyzeProgression}
+                    disabled={isPendingAnalysis || (selectedSection.chords?.chords?.length ?? 0) === 0}
+                    className="gap-1.5 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 transition-all"
+                  >
+                    {isPendingAnalysis ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    {isPendingAnalysis ? "Analizando..." : "Analizar con IA"}
+                  </Button>
+                </div>
+                {analyzeError && (
+                  <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{analyzeError}</p>
+                )}
+                {selectedSection.chords.theoryExplanation ? (
+                  <p className="text-sm text-foreground/80 leading-relaxed italic">
+                    &ldquo;{selectedSection.chords.theoryExplanation}&rdquo;
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground/60 italic">
+                    Haz clic en &ldquo;Analizar con IA&rdquo; para que la inteligencia artificial analice toda tu progresión y genere un análisis armónico profesional.
+                  </p>
+                )}
               </div>
             )}
 
@@ -136,88 +271,63 @@ export function SectionChordEditor({
                         key={idx}
                         className="group relative rounded-2xl border border-border bg-card/30 p-4 transition-all duration-300 hover:scale-[1.02] hover:border-primary/20 hover:bg-card/50 flex flex-col justify-between shadow-md min-h-[310px] overflow-hidden"
                       >
-                        {/* Header */}
+                        {onUpdateChords && (
+                          <div className="absolute top-2 right-2 flex opacity-0 group-hover:opacity-100 transition-opacity gap-1 z-10 bg-background/80 backdrop-blur-sm p-1 rounded-lg border border-border/50">
+                            <button onClick={() => openBuilderForEdit(idx, chordObj.chord, chordObj.duration || 4)} className="p-1.5 text-muted-foreground hover:text-primary rounded-md hover:bg-muted transition-colors">
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button onClick={() => handleDeleteChord(idx)} className="p-1.5 text-muted-foreground hover:text-destructive rounded-md hover:bg-muted transition-colors">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+
                         <div className="flex justify-between items-start gap-2">
                           <div className="space-y-1.5 min-w-0 flex-1">
                             <div className={dynamicTextClass} title={chordObj.chord}>
                               {chordObj.chord}
                             </div>
-                            
                             <div className="space-y-1">
                               {chordObj.inversion && (
                                 <div className="text-[10px] text-muted-foreground leading-snug">
                                   Inversión: <span className="text-foreground font-semibold">{chordObj.inversion}</span>
                                 </div>
                               )}
-                              {chordObj.voicing && (
-                                <div className="text-[10px] text-muted-foreground/80 leading-snug italic truncate" title={chordObj.voicing}>
-                                  Voicing: {chordObj.voicing}
-                                </div>
-                              )}
+                              <div className="text-[10px] text-muted-foreground">
+                                Rol: <span className="text-foreground font-semibold">{chordObj.role}</span>
+                              </div>
                             </div>
-                          </div>
-
-                          <span className="text-[10px] font-bold text-muted-foreground/40 bg-muted/40 px-2 py-0.5 rounded-md shrink-0 self-start">
-                            #{idx + 1}
-                          </span>
-                        </div>
-
-                        {/* Color Badges */}
-                        <div className="mt-3.5 space-y-2">
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${getRoleColor(chordObj.role)}`}>
-                              {chordObj.role}
-                            </span>
-                            {chordObj.romanNumeral && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-primary">
-                                {chordObj.romanNumeral}
-                              </span>
-                            )}
-                          </div>
-
-                          {chordObj.suggestedScale && (
-                            <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                              <span className="font-bold text-foreground/75 shrink-0">Impro:</span>
-                              <span className="px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground font-medium truncate" title={chordObj.suggestedScale}>
-                                {chordObj.suggestedScale}
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
-                            <div className="text-[10px] font-bold text-primary/80 flex items-center gap-1">
-                              <span>Duración:</span>
-                              <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">
-                                {chordObj.duration}t
-                              </span>
-                            </div>
-
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="cursor-help inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/50 border border-border/50 px-1.5 py-0.5 rounded transition-all duration-200 ml-auto">
-                                  <AlertCircle className="w-3 h-3 text-primary/70" />
-                                  <span>Detalles</span>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[220px] bg-popover text-popover-foreground border border-border shadow-lg rounded-xl p-3 text-[11px] leading-relaxed z-50">
-                                {chordObj.description}
-                              </TooltipContent>
-                            </Tooltip>
                           </div>
                         </div>
-
-                        {/* Virtual Piano Keyboard */}
-                        <PianoKeyboard activeNotes={chordObj.pianoNotes || []} />
+                        {chordObj.voicing && (
+                          <div className="text-[10px] text-muted-foreground/80 leading-snug italic truncate" title={chordObj.voicing}>
+                            Voicing: {chordObj.voicing}
+                          </div>
+                        )}
+                        <div className="pt-3 border-t border-border/40 w-full">
+                          <PianoKeyboard activeNotes={chordObj.pianoNotes || []} />
+                        </div>
                       </div>
                     );
                   })}
+                  {onUpdateChords && selectedSection.chords?.chords?.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={openBuilderForAdd}
+                      className="group relative rounded-2xl border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10 transition-all duration-300 flex flex-col items-center justify-center shadow-sm min-h-[310px] text-muted-foreground hover:text-foreground hover:border-primary/40"
+                    >
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3 group-hover:bg-primary/10 transition-colors">
+                        <Plus className="w-6 h-6 group-hover:text-primary transition-colors" />
+                      </div>
+                      <span className="text-sm font-bold tracking-widest">Añadir Acorde</span>
+                    </button>
+                  )}
                 </div>
               </TooltipProvider>
             </div>
           </TabsContent>
 
           <TabsContent value="tracks" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
-            {/* Pistas e Instrumentos AI */}
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-1.5 border-b border-border/30">
                 <div className="space-y-0.5">
@@ -243,10 +353,7 @@ export function SectionChordEditor({
                     const isBass = track.name.toLowerCase().includes("bajo") || 
                                    track.name.toLowerCase().includes("bass");
                     
-                    // Color gradient using track name/midi channel
                     const colorClass = getTrackColorClasses(track.name, track.midiChannel);
-
-                    // Calculate min/max midi for rendering note lanes
                     const noteMidiNumbers = notesList.map(n => noteToMidi(n.note));
                     const minMidi = noteMidiNumbers.length > 0 ? Math.min(...noteMidiNumbers) - 2 : 36;
                     const maxMidi = noteMidiNumbers.length > 0 ? Math.max(...noteMidiNumbers) + 2 : 84;
@@ -260,7 +367,6 @@ export function SectionChordEditor({
                         key={track.id} 
                         className="rounded-2xl border border-border/60 bg-card/25 dark:bg-[#0c0c0e]/30 p-5 space-y-4 hover:border-primary/20 hover:bg-card/45 transition-all duration-300 shadow-sm"
                       >
-                        {/* Track Info Header */}
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <div className={`p-2 rounded-xl shrink-0 ${
@@ -348,12 +454,9 @@ export function SectionChordEditor({
                           </div>
                         </div>
 
-                        {/* Notes Section */}
                         {hasNotes ? (
                           <div className="space-y-3">
-                            {/* Mini Grid Roll Visualizer */}
                             <div className="relative h-14 bg-zinc-100/50 dark:bg-zinc-950/45 border border-border/40 rounded-2xl overflow-hidden shadow-inner flex animate-fade-in">
-                              {/* Grid vertical bars for measures (each 4 beats) */}
                               {Array.from({ length: Math.ceil(totalBeats / 4) }).map((_, mIdx) => (
                                 <div 
                                   key={mIdx} 
@@ -364,7 +467,6 @@ export function SectionChordEditor({
                                 </div>
                               ))}
 
-                              {/* Render notes as floating pill blocks */}
                               {notesList.map((n, nIdx) => {
                                 const midi = noteToMidi(n.note);
                                 const noteLeft = (n.startBeat / totalBeats) * 100;
@@ -386,7 +488,6 @@ export function SectionChordEditor({
                               })}
                             </div>
 
-                            {/* Notes Cards Scroll Area */}
                             <div className="flex gap-2 overflow-x-auto pb-1.5 pt-0.5 no-scrollbar scroll-smooth">
                               {notesList.map((n, nIdx) => (
                                 <div 
@@ -434,6 +535,16 @@ export function SectionChordEditor({
           </TabsContent>
         </Tabs>
       )}
+
+      <ManualChordBuilderDialog
+        isOpen={isBuilderOpen}
+        onClose={() => setIsBuilderOpen(false)}
+        onSave={handleSaveBuilder}
+        initialData={builderInitialData}
+        sectionKey={selectedSection.key}
+        sectionType={selectedSection.type}
+        previousChords={previousChords}
+      />
     </div>
   );
 }

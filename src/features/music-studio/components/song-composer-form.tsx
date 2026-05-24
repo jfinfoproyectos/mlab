@@ -14,6 +14,7 @@ interface SongComposerFormProps {
   loading: boolean;
   onGenerateSong: (data: SongInput) => void;
   onImportSong: (song: SongStructure) => void;
+  onCreateEmptySong: () => void;
 }
 
 const PRESETS = [
@@ -26,7 +27,8 @@ const PRESETS = [
 export function SongComposerForm({
   loading,
   onGenerateSong,
-  onImportSong
+  onImportSong,
+  onCreateEmptySong
 }: SongComposerFormProps) {
   const { register, handleSubmit, setValue, control, formState: { errors } } = useForm<SongInput>({
     resolver: zodResolver(songInputSchema) as any,
@@ -113,8 +115,8 @@ export function SongComposerForm({
               </div>
             </div>
 
-            {/* Manual JSON Import Button */}
-            <div className="pt-2 border-t border-border/30">
+            {/* Manual JSON Import Button & Empty Project Button */}
+            <div className="pt-2 border-t border-border/30 grid grid-cols-2 gap-2">
               <input 
                 type="file" 
                 id="import-song-project-file" 
@@ -126,10 +128,19 @@ export function SongComposerForm({
                 type="button"
                 onClick={() => document.getElementById("import-song-project-file")?.click()}
                 variant="outline" 
-                className="w-full h-10 rounded-2xl text-xs flex items-center gap-2 border-border"
+                className="w-full h-10 rounded-xl text-[11px] flex items-center justify-center gap-1.5 border-border shadow-sm hover:bg-muted/60"
               >
-                <Upload className="w-4 h-4 text-primary" />
-                Importar Proyecto JSON
+                <Upload className="w-3.5 h-3.5 text-primary" />
+                Importar JSON
+              </Button>
+              <Button 
+                type="button"
+                onClick={onCreateEmptySong}
+                variant="outline" 
+                className="w-full h-10 rounded-xl text-[11px] flex items-center justify-center gap-1.5 border-primary/30 shadow-sm text-primary hover:bg-primary/5 hover:text-primary"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Proyecto Vacío
               </Button>
             </div>
           </div>

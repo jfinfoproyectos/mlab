@@ -42,6 +42,7 @@ REGLAS DE GROOVE PROFESIONAL:
 - Si el usuario pide 'Funk': Debe ser un patrón sincopado muy activo, con notas en la Fila 0 (Bajo) y adornos rápidos en la Fila 4 (Agudo).
 - Si el usuario pide 'House' o 'EDM': Fila 0 debe ser golpes constantes 4-on-the-floor (pasos 0, 4, 8, 12) y las otras filas rellenar rítmicamente.
 - Si el usuario pide 'Cumbia': Debe tener el contratiempo clásico cumbiero.
+- FINALES / OUTROS: Si la instrucción indica que es un final, outro o cierre, el patrón debe ir disminuyendo su energía y terminar con un golpe fuerte (crash/bombo) en el paso 0, y el resto de los pasos (1 al 15) deben ser COMPLETAMENTE SILENCIO en todas las filas.
 - ASEGÚRATE de que cada una de las 5 filas tenga EXACTAMENTE 16 booleanos. No agregues más de 16 pasos por fila ni menos de 16.`;
 
     const userPrompt = `Genera un patrón rítmico creativo y profesional de 16 pasos basado en la siguiente instrucción de estilo: "${prompt}"`;
@@ -181,6 +182,7 @@ REGLAS ABSOLUTAS DE POLIFONÍA PROFESIONAL:
 4. JERARQUÍA DINÁMICA: Bajo (velocity 0.8-1.0), Melodía (0.7-0.9), Contrapunto/Pad (0.4-0.7).
 5. DIRECCIÓN MELÓDICA: Cada voz debe tener una dirección clara. Preferir movimiento conjunto sobre saltos grandes.
 6. COBERTURA DE ACORDES: Cada voz DEBE tener al menos 2 notas por compás, dentro del rango de tiempos del acorde activo.
+7. FINALES REALES Y CONCLUSIVOS (CRÍTICO): Si la sección actual es un "Outro", "Final" o similar, TODAS las voces deben converger y resolver en el último acorde. Deben tocar notas largas sostenidas (durationBeats entre 4.0 y 8.0) en el inicio de ese último acorde y luego mantener silencio absoluto. NO generar más notas rítmicas ni melodías rápidas al final, debe sonar como el verdadero final definitivo de una canción.
 
 INFORMACIÓN MUSICAL:
 - Canción: ${songTitle}

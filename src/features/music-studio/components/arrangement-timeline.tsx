@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { SongStructure, SongSection } from "../schemas/song-generator.schema";
 
@@ -13,6 +13,8 @@ interface ArrangementTimelineProps {
   handleRegenerateSection: (section: SongSection) => void;
   loading: boolean;
   playbackSectionId?: string | null;
+  onAddSection?: () => void;
+  onDeleteSection?: (sectionId: string) => void;
 }
 
 export function ArrangementTimeline({
@@ -22,7 +24,9 @@ export function ArrangementTimeline({
   generatingSectionIds,
   handleRegenerateSection,
   loading,
-  playbackSectionId
+  playbackSectionId,
+  onAddSection,
+  onDeleteSection
 }: ArrangementTimelineProps) {
   return (
     <div className="space-y-3">
@@ -113,22 +117,54 @@ export function ArrangementTimeline({
                 </div>
 
                 {/* Section-level Regeneration */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRegenerateSection(sect);
-                  }}
-                  disabled={isGen || loading}
-                  className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-primary transition-all duration-200 shrink-0 ml-2"
-                  title="Regenerar acordes de esta sección únicamente"
-                >
-                  <RotateCcw className={`w-3.5 h-3.5 ${isGen ? "animate-spin" : ""}`} />
-                </button>
+                <div className="flex items-center gap-1">
+                  {/* Section-level Regeneration */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRegenerateSection(sect);
+                    }}
+                    disabled={isGen || loading}
+                    className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-primary transition-all duration-200 shrink-0"
+                    title="Regenerar acordes de esta sección únicamente"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isGen ? "animate-spin" : ""}`} />
+                  </button>
+                  
+                  {/* Delete Section */}
+                  {onDeleteSection && activeSong.sections.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSection(sect.id);
+                      }}
+                      className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all duration-200 shrink-0"
+                      title="Eliminar esta sección"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
+
+        {/* Add Manual Section Button */}
+        {onAddSection && (
+          <button
+            onClick={onAddSection}
+            className="group relative rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/30 p-4 transition-all duration-300 flex flex-col items-center justify-center min-h-[120px] text-muted-foreground hover:text-foreground hover:border-primary/40"
+            title="Añadir nueva sección manualmente"
+          >
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2 group-hover:bg-primary/10 transition-colors">
+              <Plus className="w-5 h-5 group-hover:text-primary transition-colors" />
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest">Añadir Sección</span>
+          </button>
+        )}
       </div>
     </div>
   );

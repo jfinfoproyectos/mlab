@@ -12,6 +12,8 @@ interface PlayableChord {
   sectionType: string;
   chordIndexInSection: number;
   globalIndex: number;
+  durationBeats: number;
+  startBeatInSection: number;
 }
 
 // Convert note name (e.g. "C3") to MIDI number
@@ -1622,7 +1624,9 @@ export function useSongPlayback(
     let globalIndex = 0;
     song.sections.forEach((sect) => {
       if (sect.chords && sect.chords.chords) {
+        let currentStartBeat = 0;
         sect.chords.chords.forEach((chord, chordIdx) => {
+          const duration = chord.duration || 4;
           list.push({
             chordName: chord.chord,
             notes: chord.pianoNotes || [],
@@ -1630,7 +1634,10 @@ export function useSongPlayback(
             sectionType: sect.type,
             chordIndexInSection: chordIdx,
             globalIndex: globalIndex++,
+            durationBeats: duration,
+            startBeatInSection: currentStartBeat,
           });
+          currentStartBeat += duration;
         });
       }
     });
@@ -1816,7 +1823,7 @@ export function useSongPlayback(
 
       const currentBpm = playbackBpmRef.current;
       const beatDurationSec = 60 / currentBpm;
-      const chordDurationMs = beatDurationSec * 4 * 1000;
+      const chordDurationMs = chord.durationBeats * beatDurationSec * 1000;
       const startTimeMs = playbackTimeQueueRef.current;
 
       // Schedule React UI state updates to align exactly with note playback time
@@ -1831,8 +1838,8 @@ export function useSongPlayback(
       const anySoloed = activeSongRef.current?.tracks?.some(t => t.soloed === true) || false;
 
       if (activeSongRef.current) {
-        const currentChordStart = chord.chordIndexInSection * 4;
-        const currentChordEnd = currentChordStart + 4;
+        const currentChordStart = chord.startBeatInSection;
+        const currentChordEnd = currentChordStart + chord.durationBeats;
 
         if (chord.chordIndexInSection === 0 || currentIdx === startIdx) {
           trackTimeoutsRef.current.forEach(clearTimeout);
