@@ -1124,7 +1124,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         }
 
         // Extract rhythm notes if sync is enabled
-        let rhythmNotesData = null;
+        let rhythmNotesData: any[] | undefined = undefined;
         if (syncWithProgression) {
           const progressionTrack = activeSong.tracks?.find(t => t.isProgressionRhythm);
           if (progressionTrack && progressionTrack.sectionNotes && progressionTrack.sectionNotes[sect.id]) {
@@ -2046,6 +2046,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             try {
               const res = await generateSectionTrackAction(payload);
               if (res.success && res.data?.notes && res.data.notes.length > 0) {
+                if (!melodyTrack.sectionNotes) melodyTrack.sectionNotes = {};
+                if (!melodyTrack.prompts) melodyTrack.prompts = {};
                 melodyTrack.sectionNotes[sect.id] = res.data.notes;
                 melodyTrack.prompts[sect.id] = payload.userPrompt;
               }

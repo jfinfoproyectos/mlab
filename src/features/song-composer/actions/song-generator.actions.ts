@@ -195,7 +195,7 @@ REGLAS ESTRICTAS DE CONCISIÓN:
           if (section.lyrics && section.lyrics.trim().length > 0) {
             const estimatedSyllables = Math.max(16, section.lyrics.split(/\s+/).length * 1.5);
             const recommendedChords = Math.ceil(estimatedSyllables / 4); // target ~4 beats per chord
-            section.chordCount = Math.min(16, Math.max(section.chordCount, recommendedChords));
+            section.chordCount = Math.min(16, Math.max(section.chordCount || 4, recommendedChords));
           }
           return section;
         });

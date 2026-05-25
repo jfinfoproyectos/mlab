@@ -174,7 +174,7 @@ export function useSongPlayback(
   
   // Settings Refs (avoid stale closure overrides)
   const playbackBpmRef = useRef<number>(80);
-  const playbackModeRef = useRef<"basic" | "rhythm" | "arpeggio">("basic");
+  const playbackModeRef = useRef<"ai" | "basic" | "rhythm" | "arpeggio">("ai");
   const selectedRhythmPatternRef = useRef<string>("pop-ballad");
   const selectedArpeggioPatternRef = useRef<string>("up-down");
   const playbackVolumeRef = useRef<number>(0.7);

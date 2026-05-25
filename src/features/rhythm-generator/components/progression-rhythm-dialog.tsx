@@ -25,8 +25,8 @@ interface ProgressionRhythmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activeSong: SongStructure | null;
-  playbackMode: "basic" | "rhythm" | "arpeggio";
-  setPlaybackMode: (mode: "basic" | "rhythm" | "arpeggio") => void;
+  playbackMode: "ai" | "basic" | "rhythm" | "arpeggio";
+  setPlaybackMode: (mode: "ai" | "basic" | "rhythm" | "arpeggio") => void;
   selectedRhythmPattern: string;
   setSelectedRhythmPattern: (pattern: string) => void;
   selectedArpeggioPattern: string;
