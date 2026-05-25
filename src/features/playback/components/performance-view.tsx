@@ -12,6 +12,7 @@ interface PerformanceViewProps {
   playbackSectionId: string | null;
   playbackChordIndex: number;
   activePlaybackNotes: string[];
+  activeNoteIds: string[];
   playbackBpm: number;
   togglePlayback: () => void;
   stopPlayback: () => void;
@@ -25,6 +26,7 @@ export function PerformanceView({
   playbackSectionId,
   playbackChordIndex,
   activePlaybackNotes,
+  activeNoteIds,
   playbackBpm,
   togglePlayback,
   stopPlayback,
@@ -38,11 +40,41 @@ export function PerformanceView({
       id: section.id,
       type: section.type,
       chords: section.chords?.chords || [],
+      lyrics: section.lyrics,
     }));
   }, [activeSong]);
 
+  const vocalTrack = useMemo(() => {
+    if (!activeSong || !activeSong.tracks) return null;
+    return activeSong.tracks.find(t => t.name === "Voz Principal");
+  }, [activeSong]);
+
+  const activeVocalNotes = useMemo(() => {
+    if (!vocalTrack || !playbackSectionId) return [];
+    return vocalTrack.sectionNotes[playbackSectionId] || [];
+  }, [vocalTrack, playbackSectionId]);
+  
+  const hasSyllables = activeVocalNotes.some(n => n.syllable);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const activeChordRef = useRef<HTMLDivElement>(null);
+
+  // Track history of played notes for Karaoke style highlighting
+  const [playedNoteIds, setPlayedNoteIds] = React.useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPlayedNoteIds(prev => {
+      if (activeNoteIds.length === 0) return prev;
+      const next = new Set(prev);
+      activeNoteIds.forEach(id => next.add(id));
+      return next;
+    });
+  }, [activeNoteIds]);
+
+  // Clear karaoke history when playback stops or section changes
+  useEffect(() => {
+    setPlayedNoteIds(new Set());
+  }, [isPlaying, playbackSectionId]);
 
   // Flatten chords and calculate absolute timing
   const flatChords = useMemo(() => {
@@ -186,6 +218,51 @@ export function PerformanceView({
             </div>
           </div>
         </div>
+
+        {/* Karaoke Panel */}
+        {activeSong?.sections.some(s => s.lyrics) && (
+          <div className="w-full bg-black/80 border-b border-emerald-900/30 p-6 md:p-8 flex flex-col items-center justify-center min-h-[140px] z-10 shrink-0 relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 via-transparent to-emerald-500/5"></div>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(16,185,129,0.1),transparent_70%)]"></div>
+            
+            <p className="text-[10px] md:text-xs text-emerald-500/60 font-bold tracking-widest uppercase mb-2 z-10">
+              {activeSection?.type || "Letra"}
+            </p>
+            <h3 className={`text-xl md:text-3xl font-black text-center max-w-4xl leading-relaxed z-10 transition-all duration-300 ${isPlaying ? "scale-105" : "text-zinc-500"}`}>
+              {hasSyllables ? (
+                activeVocalNotes.map((note, idx) => {
+                  if (!note.syllable) return null;
+                  const isActive = note.id && activeNoteIds.includes(note.id);
+                  // Ensure spaces are rendered if the syllable ends or starts with a space
+                  // Or just assume syllables are chunks. Usually AI might include spaces or dashes.
+                  const isLastInWord = !note.syllable.endsWith("-");
+                  const displayText = note.syllable.replace(/-$/, ""); // Remove hyphen for display if you want, or keep it. Let's keep it for visual clarity but add space after if it doesn't have it.
+                  
+                  return (
+                    <span key={note.id || idx}>
+                      <span 
+                        className={`inline-block transition-all duration-150 ${
+                          isActive 
+                            ? "text-emerald-300 drop-shadow-[0_0_15px_rgba(16,185,129,0.9)] scale-110 -translate-y-1" 
+                            : playedNoteIds.has(note.id!) 
+                              ? "text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                              : "text-zinc-600"
+                        }`}
+                      >
+                        {displayText}
+                      </span>
+                      {isLastInWord && <span className="inline-block w-2 md:w-3"></span>}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className={isPlaying ? "text-emerald-50 drop-shadow-[0_0_15px_rgba(16,185,129,0.6)]" : ""}>
+                  {activeSection?.lyrics || (isPlaying ? "..." : "Selecciona una sección para cantar")}
+                </span>
+              )}
+            </h3>
+          </div>
+        )}
 
         {/* Timeline Area (Measures Grid) */}
         <div 

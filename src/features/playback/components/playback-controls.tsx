@@ -31,8 +31,8 @@ interface PlaybackControlsProps {
   activePlaybackNotes: string[];
   togglePlayback: () => void;
   stopPlayback: () => void;
-  playbackMode: "basic" | "rhythm" | "arpeggio";
-  setPlaybackMode: (mode: "basic" | "rhythm" | "arpeggio") => void;
+  playbackMode: "ai" | "basic" | "rhythm" | "arpeggio";
+  setPlaybackMode: (mode: "ai" | "basic" | "rhythm" | "arpeggio") => void;
   selectedRhythmPattern: string;
   setSelectedRhythmPattern: (pattern: string) => void;
   selectedArpeggioPattern: string;
@@ -173,24 +173,23 @@ export function PlaybackControls({
           {/* Row 2: Selectors & Loops */}
           <div className="flex flex-wrap items-end gap-4">
             {/* Playback Mode Selector */}
-            <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-              <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
-                MODO DE REPRODUCCIÓN
-              </label>
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Modo de Acompañamiento</Label>
               <select
+                className="h-12 bg-background dark:bg-zinc-900/50 border border-border dark:border-zinc-800 text-xs rounded-2xl px-4 font-bold focus:ring-1 focus:ring-emerald-500/50 outline-none transition-colors cursor-pointer select-none"
                 value={playbackMode}
-                onChange={(e) => setPlaybackMode(e.target.value as "basic" | "rhythm" | "arpeggio")}
-                className="rounded-2xl border border-border dark:border-zinc-800 bg-background dark:bg-zinc-900/50 text-foreground dark:text-zinc-200 h-12 px-4 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500/50 hover:bg-muted dark:hover:bg-zinc-900 transition-colors cursor-pointer select-none"
+                onChange={(e) => setPlaybackMode(e.target.value as "ai" | "basic" | "rhythm" | "arpeggio")}
               >
-                <option value="basic">🎵 Modo Básico</option>
-                <option value="rhythm">🥁 Modo Ritmos Presets</option>
-                <option value="arpeggio">✨ Modo Arpegios</option>
+                <option value="ai">✨ Original de IA</option>
+                <option value="basic">🎵 Acordes Básicos</option>
+                <option value="rhythm">🥁 Ritmo Complejo</option>
+                <option value="arpeggio">✨ Arpegiador</option>
               </select>
             </div>
 
             {/* Popular Rhythm Pattern Selector */}
             {playbackMode === "rhythm" && (
-              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in zoom-in duration-200">
                 <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
                   PATRÓN DE RITMO
                 </label>
@@ -223,7 +222,7 @@ export function PlaybackControls({
 
             {/* Premium Arpeggio Pattern Selector */}
             {playbackMode === "arpeggio" && (
-              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px] animate-in fade-in zoom-in duration-200">
                 <label className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
                   PATRÓN DE ARPEGIO
                 </label>

@@ -87,6 +87,9 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
     if (validated.tempo && validated.tempo !== "Automático" && validated.tempo.trim() !== "") {
       targetPrompt += `- Tempo (BPM) obligatorio: Debe sugerir exactamente: ${validated.tempo} BPM.\n`;
     }
+    if (validated.lyrics && validated.lyrics.trim() !== "") {
+      targetPrompt += `\n- LONGITUD Y RITMO ARMÓNICO PARA LETRA: Esta sección contiene la siguiente letra:\n"""\n${validated.lyrics}\n"""\nAsigna la 'duration' a cada uno de los ${count} acordes de forma natural (usualmente 4 tiempos, o a veces 2 u 8). La cantidad de acordes ya fue pre-calculada para coincidir con la longitud de esta letra, así que no necesitas forzar duraciones artificialmente largas.\n`;
+    }
 
     // 3. Generate structured JSON output using the recommended Vercel AI SDK generateText API with Output.object
     console.log(`Calling Vercel AI SDK generateText with Output.object for prompt (${count} chords):`, targetPrompt);

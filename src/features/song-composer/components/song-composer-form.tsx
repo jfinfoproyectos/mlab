@@ -33,6 +33,8 @@ export function SongComposerForm({
   const { register, handleSubmit, setValue, control, formState: { errors } } = useForm<SongInput>({
     resolver: zodResolver(songInputSchema) as any,
     defaultValues: {
+      generationMode: "idea",
+      lyrics: "",
       prompt: "",
       key: "Automático",
       scale: "Automático",
@@ -48,6 +50,7 @@ export function SongComposerForm({
     }
   });
 
+  const generationMode = useWatch({ control, name: "generationMode" });
   const autoGenerateRhythm = useWatch({ control, name: "autoGenerateRhythm" });
   const rhythmPolyphonic = useWatch({ control, name: "rhythmPolyphonic" });
   const polyphonicVoices = useWatch({ control, name: "polyphonicVoices" }) || [];
@@ -76,44 +79,90 @@ export function SongComposerForm({
   return (
     <div className="w-full">
       <form onSubmit={handleSubmit(onGenerateSong)} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Left Column: Prompt & Inspiration presets */}
+        {/* Generation Mode Toggle - Moved to top for better UX */}
+        <div className="flex bg-muted/40 p-1 rounded-xl border border-border/50 max-w-md mx-auto mb-2">
+          <button
+            type="button"
+            onClick={() => setValue("generationMode", "idea")}
+            className={`flex-1 text-[11px] font-bold py-2 rounded-lg transition-all ${
+              generationMode === "idea" 
+                ? "bg-primary text-primary-foreground shadow-sm" 
+                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+            }`}
+          >
+            💡 Desde Idea Musical
+          </button>
+          <button
+            type="button"
+            onClick={() => setValue("generationMode", "lyrics")}
+            className={`flex-1 text-[11px] font-bold py-2 rounded-lg transition-all ${
+              generationMode === "lyrics" 
+                ? "bg-primary text-primary-foreground shadow-sm" 
+                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+            }`}
+          >
+            🎤 Desde Letra (Karaoke)
+          </button>
+        </div>
+
+        <div className={`grid grid-cols-1 ${generationMode === "lyrics" ? "" : "md:grid-cols-2"} gap-6`}>
+          {/* Left Column: Prompt, Lyrics & Inspiration presets */}
           <div className="space-y-4">
+
+            {generationMode === "lyrics" && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                <Label htmlFor="lyrics" className="text-sm font-bold text-foreground">Letra de la Canción</Label>
+                <textarea 
+                  id="lyrics"
+                  rows={6}
+                  placeholder="Pega la letra completa aquí. Asegúrate de separar las secciones por líneas en blanco o con etiquetas como [Verso], [Coro]..."
+                  {...register("lyrics")}
+                  className="w-full rounded-2xl border border-border bg-background/50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none h-[180px]"
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="prompt" className="text-sm font-bold text-foreground">Concepto / Vibe</Label>
+              <Label htmlFor="prompt" className="text-sm font-bold text-foreground">
+                {generationMode === "lyrics" ? "Estilo / Vibra (Opcional)" : "Concepto / Vibra Musical"}
+              </Label>
               <textarea 
                 id="prompt"
-                rows={4}
-                placeholder="Ej. Balada Neo-Soul melancólica y nocturna con acordes de novena y vibraciones de lluvia..."
+                rows={generationMode === "lyrics" ? 2 : 4}
+                placeholder={generationMode === "lyrics" 
+                  ? "Ej. Pop rock alegre, tempo medio..." 
+                  : "Ej. Balada Neo-Soul melancólica y nocturna con acordes de novena y vibraciones de lluvia..."}
                 {...register("prompt")}
-                className="w-full rounded-2xl border border-border bg-background/50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none h-[115px]"
+                className={`w-full rounded-2xl border border-border bg-background/50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none ${generationMode === "lyrics" ? "h-[70px]" : "h-[115px]"}`}
               />
               {errors.prompt && (
                 <p className="text-xs text-destructive mt-1">{errors.prompt.message}</p>
               )}
             </div>
 
-            {/* Presets List */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                Ideas de Inspiración
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                {PRESETS.map((preset, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      setValue("prompt", preset.prompt);
-                      toast.info(`Preset: "${preset.label}"`);
-                    }}
-                    className="text-left text-[11px] p-2.5 rounded-xl bg-muted/40 border border-border/40 hover:bg-muted/70 hover:border-primary/20 transition-all duration-200 line-clamp-2 h-12"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+            {/* Presets List (Only for idea mode) */}
+            {generationMode === "idea" && (
+              <div className="space-y-2 animate-in fade-in duration-300">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  Ideas de Inspiración
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {PRESETS.map((preset, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setValue("prompt", preset.prompt);
+                        toast.info(`Preset: "${preset.label}"`);
+                      }}
+                      className="text-left text-[11px] p-2.5 rounded-xl bg-muted/40 border border-border/40 hover:bg-muted/70 hover:border-primary/20 transition-all duration-200 line-clamp-2 h-12"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Manual JSON Import Button & Empty Project Button */}
             <div className="pt-2 border-t border-border/30 grid grid-cols-2 gap-2">
@@ -146,7 +195,8 @@ export function SongComposerForm({
           </div>
 
           {/* Right Column: Harmonic & Structure Parameters */}
-          <div className="space-y-4 bg-muted/20 p-4 rounded-2xl border border-border/30">
+          {generationMode !== "lyrics" && (
+            <div className="space-y-4 bg-muted/20 p-4 rounded-2xl border border-border/30">
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider border-b border-border/20 pb-2 flex items-center gap-1.5">
               Configuración del Arreglo
             </h4>
@@ -269,6 +319,7 @@ export function SongComposerForm({
               </div>
             </div>
           </div>
+          )}
           
           {/* ─── AUTO-GENERATION PANEL ─── */}
           <div className="col-span-1 md:col-span-2 space-y-4 bg-primary/5 p-4 rounded-2xl border border-primary/20">

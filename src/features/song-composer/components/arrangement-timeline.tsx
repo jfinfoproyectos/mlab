@@ -88,13 +88,13 @@ export function ArrangementTimeline({
                 {(sect.reusedFrom || sect.variationOf) && (
                   <div className="flex flex-wrap gap-1 my-1">
                     {sect.reusedFrom && (
-                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" title={`Copia exacta de ${sect.reusedFrom}`}>
-                        🔗 Clon de {sect.reusedFrom}
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 max-w-[150px] truncate" title={`Copia exacta de ${sect.reusedFrom}`}>
+                        <span className="truncate">🔗 Clon de {sect.reusedFrom}</span>
                       </span>
                     )}
                     {sect.variationOf && (
-                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 border border-indigo-500/20" title={`Variación de ${sect.variationOf}`}>
-                        ✨ Var. de {sect.variationOf}
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 max-w-[150px] truncate" title={`Variación de ${sect.variationOf}`}>
+                        <span className="truncate">✨ Var. de {sect.variationOf}</span>
                       </span>
                     )}
                   </div>
@@ -103,10 +103,6 @@ export function ArrangementTimeline({
                 <h4 className="text-sm font-bold truncate">
                   {sect.chords ? sect.chords.chords.map(c => c.chord).join(" ➔ ") : "Generando progresiones..."}
                 </h4>
-                
-                <p className="text-[10px] text-muted-foreground/80 leading-normal line-clamp-2" title={sect.prompt}>
-                  {sect.prompt}
-                </p>
               </div>
 
               {/* Bottom Row inside Section Stepper card */}

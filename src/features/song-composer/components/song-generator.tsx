@@ -20,8 +20,10 @@ import {
   generateSectionTrackAction,
   refineSongWithAiAction
 } from "../actions/song-generator.actions";
+import { generateDrumTrackAction } from "../actions/drum-generator.actions";
 import { generatePolyphonicRhythmAction } from '@/features/rhythm-generator/actions/rhythm-generator.actions';
 import { generateChordProgressionAction } from '@/features/chord-generator/actions/chord-generator.actions';
+import { exportSongToMidi } from '../services/midi-export';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -38,6 +40,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import { 
   Music, 
@@ -73,7 +81,9 @@ import {
   Send,
   Bot,
   User,
-  Presentation
+  Presentation,
+  Download,
+  Drum
 } from "lucide-react";
 
 
@@ -92,7 +102,9 @@ import { AiProgressIndicator } from '@/features/ai-assistant/components/ai-progr
 
 import { useSongPlayback } from '@/features/playback/hooks/use-song-playback';
 import { TrackComposerDialog } from "./TrackComposerDialog";
+import { DrumComposerDialog } from "./DrumComposerDialog";
 import { SectionRegenDialog } from "./SectionRegenDialog";
+import { type DrumMapping } from "../schemas/drum-maps";
 import { syncChordRhythmTrackNotes } from '@/lib/music/chord-rhythm';
 
 // Helpers for visual color coding
@@ -541,6 +553,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
     newRhythmName,
     setNewRhythmName,
     activePlaybackNotes,
+    activeNoteIds,
     midiOutputs,
     selectedOutputId,
     setSelectedOutputId,
@@ -577,6 +590,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
   // Sinfonía AI Track Dialog states
   const [isTrackComposerOpen, setIsTrackComposerOpen] = useState(false);
+  const [isDrumComposerOpen, setIsDrumComposerOpen] = useState(false);
 
   // Sinfonía AI Modular Section Regeneration states
   const [isSectionRegenOpen, setIsSectionRegenOpen] = useState(false);
@@ -1047,16 +1061,171 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
     }
   };
 
+  const handleGenerateDrumTrack = async (trackName: string, prompt: string, drumMapping?: DrumMapping, syncWithProgression?: boolean, customDrumMap?: string) => {
+    if (!activeSong || aiProcess) return;
+
+    // Check if the song has at least one section with chords (we need lengths/sections defined)
+    const sectionsWithChords = activeSong.sections.filter(s => s.chords && s.chords.chords && s.chords.chords.length > 0);
+    if (sectionsWithChords.length === 0) {
+      toast.error("Ninguna sección tiene acordes generados aún. Por favor genera la estructura primero.");
+      return;
+    }
+
+    setIsDrumComposerOpen(false);
+
+    const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const midiChannel = 10; // GM Drum Channel
+    const pendingTrack: SongTrack = {
+      id: trackId,
+      name: trackName,
+      midiChannel: midiChannel,
+      instrumentPreset: "drum-kit",
+      volume: 0.8,
+      prompts: {},
+      sectionNotes: {},
+      isGenerating: true,
+      progress: 0
+    };
+
+    const occupiedTrack = activeSong.tracks?.find(t => t.midiChannel === midiChannel);
+    if (occupiedTrack) {
+      toast.info(`El Canal ${midiChannel} ya estaba ocupado por "${occupiedTrack.name}". Ha sido sobrescrito.`);
+    }
+
+    setActiveSong(prev => {
+      if (!prev) return prev;
+      const cleanTracks = (prev.tracks || []).filter(t => t.midiChannel !== midiChannel);
+      return {
+        ...prev,
+        tracks: [...cleanTracks, pendingTrack]
+      };
+    });
+
+    const toastId = `drum-gen-${trackId}`;
+    toast.loading(`Sinfonía AI componiendo batería...`, { id: toastId });
+    const signal = startAiProcess("drum-generation", `Componiendo batería`);
+    startTask(`Componiendo batería...`);
+
+    try {
+      let completedCount = 0;
+      const results: { sectionId: string; success: boolean; notes?: any }[] = [];
+      
+      for (let index = 0; index < sectionsWithChords.length; index++) {
+        if (signal.aborted) {
+          toast.dismiss(toastId);
+          throw new DOMException("Aborted", "AbortError");
+        }
+        const sect = sectionsWithChords[index];
+        updateTaskName(`Batería: ${sect.type}`);
+        
+        let totalBeats = sect.chordCount ? sect.chordCount * 4 : 16;
+        if (sect.chords && sect.chords.chords.length > 0) {
+          totalBeats = sect.chords.chords.length * 4;
+        }
+
+        // Extract rhythm notes if sync is enabled
+        let rhythmNotesData = null;
+        if (syncWithProgression) {
+          const progressionTrack = activeSong.tracks?.find(t => t.isProgressionRhythm);
+          if (progressionTrack && progressionTrack.sectionNotes && progressionTrack.sectionNotes[sect.id]) {
+            rhythmNotesData = progressionTrack.sectionNotes[sect.id];
+          }
+        }
+
+        const res = await generateDrumTrackAction({
+          songTitle: activeSong.title,
+          sectionType: sect.type,
+          totalBeats: totalBeats,
+          userPrompt: prompt,
+          tempo: activeSong.tempo || 120,
+          drumMapping: drumMapping,
+          customDrumMap: customDrumMap,
+          progressionRhythmNotes: rhythmNotesData
+        });
+
+        results.push({ sectionId: sect.id, ...res });
+        completedCount++;
+        const pct = Math.round((completedCount / sectionsWithChords.length) * 100);
+        
+        setActiveSong(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            tracks: prev.tracks?.map(t => t.id === trackId ? { ...t, progress: pct } : t)
+          };
+        });
+      }
+
+      if (results.some(r => !r.success)) {
+        toast.error("Algunas secciones de batería fallaron al generarse.", { id: toastId });
+      } else {
+        toast.success("¡Pista de batería generada con éxito!", { id: toastId });
+      }
+
+      let updatedSongSnapshot: SongStructure | null = null;
+
+      setActiveSong(prev => {
+        if (!prev) return prev;
+        const mappedSectionNotes: Record<string, any[]> = {};
+        const mappedPrompts: Record<string, string> = {};
+
+        results.forEach(r => {
+          if (r.success && r.notes) {
+            mappedSectionNotes[r.sectionId] = r.notes;
+            mappedPrompts[r.sectionId] = prompt;
+          }
+        });
+
+        const newTracks = prev.tracks?.map(t => {
+          if (t.id === trackId) {
+            return {
+              ...t,
+              isGenerating: false,
+              progress: 100,
+              sectionNotes: mappedSectionNotes,
+              prompts: mappedPrompts,
+            };
+          }
+          return t;
+        });
+
+        const updatedSong = { ...prev, tracks: newTracks };
+        updatedSongSnapshot = updatedSong;
+        return updatedSong;
+      });
+
+      if (updatedSongSnapshot) {
+        saveSongBackground(updatedSongSnapshot);
+      }
+    } catch (error: any) {
+      if (error.name !== "AbortError") {
+        toast.error("Error al generar batería: " + error.message, { id: toastId });
+      }
+      setActiveSong(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tracks: prev.tracks?.filter(t => t.id !== trackId)
+        };
+      });
+    } finally {
+      setAiProcess(null);
+      aiAbortControllerRef.current = null;
+      endTask();
+    }
+  };
+
   const handleGenerateTrack = async (params: {
     trackName: string;
     midiChannel: number;
     instrumentPreset: string;
     prompt: string;
     syncWithProgression?: boolean;
+    lyrics?: string;
   }) => {
     if (!activeSong || aiProcess) return;
 
-    const { trackName, midiChannel, instrumentPreset, prompt, syncWithProgression } = params;
+    const { trackName, midiChannel, instrumentPreset, prompt, syncWithProgression, lyrics } = params;
     
     // Check if the song has at least one section with chords
     const sectionsWithChords = activeSong.sections.filter(s => s.chords && s.chords.chords && s.chords.chords.length > 0);
@@ -1160,7 +1329,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               chordsList,
               trackName: trackName,
               midiChannel: midiChannel,
-              userPrompt: prompt || `Arreglo instrumental para ${trackName}`
+              userPrompt: prompt || `Arreglo instrumental para ${trackName}`,
+              lyrics: lyrics || sect.lyrics
             };
             if (prevSect?.type) payload.previousSectionType = prevSect.type;
             if (previousChordsList) payload.previousChordsList = previousChordsList;
@@ -1220,6 +1390,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
       if (generatedSectionsCount > 0) {
         let finalTrack: SongTrack | null = null;
+        let updatedSongSnapshot: SongStructure | null = null;
         setActiveSong(prev => {
           if (!prev) return prev;
           const updatedTracks = (prev.tracks || []).map(t => {
@@ -1239,9 +1410,14 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             ...prev,
             tracks: updatedTracks
           };
-          setTimeout(() => saveSongBackground(updated), 0);
+          updatedSongSnapshot = updated;
           return updated;
         });
+
+        if (updatedSongSnapshot) {
+          saveSongBackground(updatedSongSnapshot);
+        }
+
         toast.success(`¡Pista global "${trackName}" generada exitosamente (${generatedSectionsCount} secciones compuestas)!`);
       } else {
         // No notes generated at all: remove the pending track card
@@ -1493,7 +1669,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         key: section.key,
         scale: section.scale,
         tempo: String(tempoVal),
-        chordCount: section.chordCount
+        chordCount: section.chordCount,
+        lyrics: section.lyrics
       });
 
       if (result.success && result.data) {
@@ -1610,6 +1787,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             chordCount: sect.chordCount,
             reusedFrom: sect.reusedFrom,
             variationOf: sect.variationOf,
+            lyrics: sect.lyrics,
             chords: null
           }))
         };
@@ -1665,7 +1843,18 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
         for (const sect of variationSections) {
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-          const baseChords = generatedSectionsMap.get(sect.variationOf!);
+          let baseChords = generatedSectionsMap.get(sect.variationOf!);
+          
+          if (!baseChords) {
+            // Fallback 1: Búsqueda difusa (fuzzy match)
+            for (const [key, val] of generatedSectionsMap.entries()) {
+              if (sect.variationOf!.includes(key) || key.includes(sect.variationOf!)) {
+                baseChords = val;
+                break;
+              }
+            }
+          }
+
           if (baseChords) {
             setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
             updateTaskName(`Generando variación armónica para la sección: ${sect.type}`);
@@ -1680,7 +1869,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                   key: sect.key,
                   scale: sect.scale,
                   tempo: String(newSong.tempo),
-                  chordCount: sect.chordCount
+                  chordCount: sect.chordCount,
+                  lyrics: sect.lyrics
                 });
 
                 if (result.success && result.data) {
@@ -1699,6 +1889,29 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               }
             }
             setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
+          } else {
+            // Fallback 2: Si no se encuentra la base, generarla como sección independiente
+            console.warn(`No se encontró base para la variación ${sect.variationOf}. Generando como base.`);
+            setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
+            updateTaskName(`Componiendo acordes de emergencia para: ${sect.type}`);
+            let success = false;
+            while (!success) {
+              if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+              try {
+                const chords = await generateSectionChords(sect, newSong.tempo, newSong.title, data.musicStyle);
+                if (chords) {
+                  generatedSectionsMap.set(sect.type, chords);
+                  success = true;
+                } else {
+                  throw new Error("No se devolvieron acordes");
+                }
+              } catch (err: any) {
+                if (err.name === "AbortError") throw err;
+                const retry = await promptConfirm(`Error de IA en sección ${sect.type}. Detalle:\n${err.message}\n¿Reintentar?`);
+                if (!retry) throw new Error("Generación cancelada por el usuario.");
+              }
+            }
+            setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
           }
         }
 
@@ -1707,10 +1920,23 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         // Phase 3: Check for clones (reusedFrom)
         for (const sect of newSong.sections) {
           if (sect.reusedFrom) {
-            const sourceChords = generatedSectionsMap.get(sect.reusedFrom);
+            let sourceChords = generatedSectionsMap.get(sect.reusedFrom);
+            if (!sourceChords) {
+               for (const [key, val] of generatedSectionsMap.entries()) {
+                 if (sect.reusedFrom.includes(key) || key.includes(sect.reusedFrom)) {
+                   sourceChords = val;
+                   break;
+                 }
+               }
+            }
             if (sourceChords) {
               generatedSectionsMap.set(sect.type, sourceChords);
               toast.success(`¡Sección ${sect.type} clonada exactamente de ${sect.reusedFrom}!`);
+            } else {
+              // Si falla clonar, asignamos la primera disponible o generamos base vacía (idealmente no llega acá)
+              console.warn(`Fallo al clonar: ${sect.reusedFrom}`);
+              const firstAvail = Array.from(generatedSectionsMap.values())[0];
+              if (firstAvail) generatedSectionsMap.set(sect.type, firstAvail);
             }
           }
         }
@@ -1744,16 +1970,16 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         
         let finalSong = initializedSong;
 
-        // Auto-generate rhythm if requested
-        if (data.autoGenerateRhythm) {
+        // Auto-generate rhythm if requested OR if generationMode is lyrics (karaoke requires backing track)
+        if (data.autoGenerateRhythm || data.generationMode === "lyrics") {
           setSongGenStatus("Auto-generando pistas de acompañamiento...");
           const sectionIds = finalSong.sections.map(s => s.id);
           const aiOptions = {
             useOrnamentalNotes: !!(data.musicStyle?.includes("Jazz") || data.musicStyle?.includes("Clásica")),
             ornamentalTypes: ["passing-tones" as any, "neighbor-tones" as any, "9th-11th-13th" as any],
-            polyphonic: data.rhythmPolyphonic ? {
+            polyphonic: (data.rhythmPolyphonic || data.generationMode === "lyrics") ? {
               enabled: true,
-              voices: (data.polyphonicVoices as any) || ["bass", "melody"],
+              voices: (data.polyphonicVoices && data.polyphonicVoices.length > 0) ? (data.polyphonicVoices as any) : ["bass", "pad", "countermelody"],
               rhythmicDensity: data.rhythmDensity as any || "medium"
             } : undefined
           };
@@ -1768,6 +1994,71 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             finalSong = resultSong;
           }
         }
+
+        // Auto-generate Melody track specifically for Lyrics mode
+        if (data.generationMode === "lyrics") {
+          setSongGenStatus("Componiendo melodía vocal sincronizada con las letras...");
+          startTask("Componiendo melodía vocal...");
+          
+          const melodyTrackId = `track-${Date.now()}-melody`;
+          const melodyTrack: SongTrack = {
+            id: melodyTrackId,
+            name: "Voz Principal",
+            midiChannel: 1,
+            instrumentPreset: "synth-lead",
+            volume: 0.9,
+            prompts: {},
+            sectionNotes: {},
+            isGenerating: false,
+            progress: 100
+          };
+
+          for (const sect of finalSong.sections) {
+            if (!sect.lyrics || !sect.chords) continue;
+            
+            updateTaskName(`Componiendo melodía para: ${sect.type}`);
+            
+            const payload: any = {
+              songTitle: finalSong.title,
+              sectionType: sect.type,
+              sectionKey: sect.key,
+              sectionScale: sect.scale,
+              chordsList: sect.chords.chords.map(c => ({
+                chord: c.chord,
+                pianoNotes: c.pianoNotes || [],
+                role: c.role
+              })),
+              trackName: "Voz Principal",
+              midiChannel: 1,
+              userPrompt: data.prompt || "Voz cantada emotiva adaptada a la letra, usa saltos y tensiones ricas armónicamente.",
+              lyrics: sect.lyrics,
+              useOrnamentalNotes: true,
+              ornamentalTypes: [
+                "passing-tones",
+                "neighbor-tones",
+                "chromatic-approach",
+                "9th-11th-13th",
+                "suspensions",
+                "anticipations"
+              ]
+            };
+
+            try {
+              const res = await generateSectionTrackAction(payload);
+              if (res.success && res.data?.notes && res.data.notes.length > 0) {
+                melodyTrack.sectionNotes[sect.id] = res.data.notes;
+                melodyTrack.prompts[sect.id] = payload.userPrompt;
+              }
+            } catch (e) {
+              console.error("Error generating melody for", sect.type, e);
+            }
+          }
+          
+          finalSong.tracks = [...(finalSong.tracks || []), melodyTrack];
+        }
+        
+        setActiveSong(finalSong);
+        activeSongRef.current = finalSong;
 
         toast.success("¡Canción completa generada!");
         setIsComposerOpen(false);
@@ -2310,6 +2601,31 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                   </TooltipContent>
                 </Tooltip>
 
+                {/* MIDI Export Button */}
+                {activeSong && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          try {
+                            exportSongToMidi(activeSong);
+                            toast.success("Archivo MIDI exportado correctamente");
+                          } catch (err) {
+                            toast.error("Error al exportar MIDI");
+                          }
+                        }}
+                        className="w-8 h-8 rounded-xl text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-500"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Descargar MIDI (.mid)</TooltipContent>
+                  </Tooltip>
+                )}
+
                 {/* Vertical Separator */}
                 <div className="h-4 w-[1px] bg-border/40 mx-0.5" />
 
@@ -2618,7 +2934,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         <div className="flex flex-1 overflow-hidden w-full h-full relative">
           {/* LEFT SIDEBAR PANEL: Transport & Mixer */}
           {activeSong && (
-            <div className="w-[360px] border-r border-border/40 bg-zinc-50/50 dark:bg-zinc-950/25 flex flex-col shrink-0 p-5 space-y-4 h-full select-none min-h-0">
+<div className="w-[360px] border-r border-border/40 bg-zinc-50/50 dark:bg-zinc-950/25 flex flex-col shrink-0 p-5 space-y-4 h-full select-none min-h-0">
               
               {/* Consola de Mezcla Multicanal */}
               <div className="space-y-4 flex-1 flex flex-col min-h-0">
@@ -2627,15 +2943,39 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                     <Sliders className="w-3.5 h-3.5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Consola de Mezcla</span>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    className="w-7 h-7 rounded-lg border-border"
-                    onClick={() => setIsTrackComposerOpen(true)}
-                    title="Agregar nueva pista con IA"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-primary" />
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="w-7 h-7 rounded-lg border-border"
+                        disabled={loading || !!aiProcess || !activeSong.sections.some(s => s.chords)}
+                        title="Añadir pista con IA"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-primary" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56 rounded-xl border-border/40 shadow-xl">
+                      <DropdownMenuItem 
+                        onClick={() => setIsTrackComposerOpen(true)}
+                        className="flex items-center gap-2 cursor-pointer font-medium p-2"
+                      >
+                        <div className="w-6 h-6 rounded bg-purple-500/10 flex items-center justify-center shrink-0">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                        </div>
+                        Pista Melódica IA
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => setIsDrumComposerOpen(true)}
+                        className="flex items-center gap-2 cursor-pointer font-medium p-2"
+                      >
+                        <div className="w-6 h-6 rounded bg-amber-500/10 flex items-center justify-center shrink-0">
+                          <Drum className="w-3.5 h-3.5 text-amber-500" />
+                        </div>
+                        Batería / Percusión IA
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 <div className="space-y-3 overflow-y-auto no-scrollbar flex-1 pr-1">
@@ -3065,6 +3405,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               playbackChordIndex={playbackChordIndex}
               playbackBpm={playbackBpm}
               activePlaybackNotes={Array.from(activePlaybackNotes)}
+              activeNoteIds={activeNoteIds}
               togglePlayback={togglePlayback}
               stopPlayback={stopPlayback}
               setPlaybackSectionId={setPlaybackSectionId}
@@ -3231,8 +3572,18 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         open={isTrackComposerOpen}
         onOpenChange={setIsTrackComposerOpen}
         activeSong={activeSong}
-        onGenerateTrack={(trackName, midiChannel, instrumentPreset, prompt, syncWithProgression) =>
-          handleGenerateTrack({ trackName, midiChannel, instrumentPreset, prompt, syncWithProgression })
+        onGenerateTrack={(trackName, midiChannel, instrumentPreset, prompt, syncWithProgression, lyrics) =>
+          handleGenerateTrack({ trackName, midiChannel, instrumentPreset, prompt, syncWithProgression, lyrics })
+        }
+      />
+
+      {/* AI Drum Composer Modal Dialog */}
+      <DrumComposerDialog
+        open={isDrumComposerOpen}
+        onOpenChange={setIsDrumComposerOpen}
+        activeSong={activeSong}
+        onGenerateDrumTrack={(trackName, prompt, mapping, sync, custom) =>
+          handleGenerateDrumTrack(trackName, prompt, mapping, sync, custom)
         }
       />
 

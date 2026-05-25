@@ -132,7 +132,7 @@ export function useSongPlayback(
   const [playbackBpm, setPlaybackBpm] = useState<number>(80);
   const [playbackVolume, setPlaybackVolume] = useState<number>(0.7);
   const [playbackPreset, setPlaybackPreset] = useState<string>("grand-piano");
-  const [playbackMode, setPlaybackMode] = useState<"basic" | "rhythm" | "arpeggio">("basic");
+  const [playbackMode, setPlaybackMode] = useState<"ai" | "basic" | "rhythm" | "arpeggio">("ai");
   const [selectedRhythmPattern, setSelectedRhythmPattern] = useState<string>("pop-ballad");
   const [selectedArpeggioPattern, setSelectedArpeggioPattern] = useState<string>("up-down");
   const [loopMode, setLoopMode] = useState<"song" | "section" | "off">("off");
@@ -148,6 +148,7 @@ export function useSongPlayback(
 
   // Virtual piano keyboard live notes visual feedback
   const [activePlaybackNotes, setActivePlaybackNotes] = useState<string[]>([]);
+  const [activeNoteIds, setActiveNoteIds] = useState<string[]>([]);
 
   // Web MIDI API connection states
   const [midiOutputs, setMidiOutputs] = useState<any[]>([]);
@@ -164,6 +165,7 @@ export function useSongPlayback(
   const activePlaybackNotesRef = useRef<string[]>([]);
   const activeMidiNotesRef = useRef<number[]>([]);
   const previouslyPlayedMidiNotesRef = useRef<number[]>([]);
+  const activeNoteIdsRef = useRef<string[]>([]);
   
   // Timer Refs
   const subTimeoutsRef = useRef<any[]>([]);
@@ -264,9 +266,11 @@ export function useSongPlayback(
       if (currentBaseSong.tracks) {
         currentBaseSong.tracks = currentBaseSong.tracks.map(t => {
           if (t.isProgressionRhythm) {
+            // Solo borramos el AI si el usuario explícitamente selecciona un modo no-IA
+            const shouldClearAi = playbackMode !== "ai";
             return {
               ...t,
-              aiSections: {}
+              aiSections: shouldClearAi ? {} : t.aiSections
             };
           }
           return t;
@@ -275,7 +279,7 @@ export function useSongPlayback(
       hasTracksChanges = true;
     }
 
-    const shouldRegenerate = hasTracksChanges || chordsChanged || !prev.tracks?.some(t => t.isProgressionRhythm);
+    const shouldRegenerate = playbackMode !== "ai" && (hasTracksChanges || chordsChanged || !prev.tracks?.some(t => t.isProgressionRhythm));
 
     if (shouldRegenerate) {
       const synced = syncChordRhythmTrackNotes(
@@ -412,6 +416,20 @@ export function useSongPlayback(
 
   const midiActivityTimeoutRef = useRef<any>(null);
 
+  // UI Sync for Active Note IDs (Syllables)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveNoteIds((prev) => {
+        const current = activeNoteIdsRef.current;
+        if (prev.length !== current.length || !prev.every((val, index) => val === current[index])) {
+          return [...current];
+        }
+        return prev;
+      });
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
   // Pulse MIDI activity lamp with throttling to prevent React render thrashing
   const triggerMidiActivity = () => {
     if (!midiActivityTimeoutRef.current) {
@@ -539,7 +557,8 @@ export function useSongPlayback(
     midiChannelNum: number = 1,
     instrumentPreset: string = "grand-piano",
     startTimeMs?: number,
-    sustain: boolean = false
+    sustain: boolean = false,
+    noteId?: string
   ) => {
     try {
       const freq = noteToFreq(noteName);
@@ -552,38 +571,50 @@ export function useSongPlayback(
           const midiNum = noteToMidi(noteName);
           const channelIdx = midiChannelNum - 1; // 0 to 15
 
-          let jitterMs = 0;
-          let jitterVel = 1.0;
+          // Humanization: Jitter de tiempo para dar "groove" orgánico (-15ms a +15ms)
+          let jitterMs = (Math.random() - 0.5) * 30;
+          
+          // Humanization: Variación de fuerza para emular la imperfección humana (0.85x a 1.15x)
+          let jitterVel = 0.85 + (Math.random() * 0.3);
 
           const scaledVelocity = Math.round(velocity * jitterVel * playbackVolumeRef.current * 127);
-          const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
+          const finalVelocity = Math.min(127, Math.max(1, scaledVelocity)); // Prevent velocity 0 (which means note off)
           const start = (startTimeMs !== undefined ? startTimeMs : performance.now()) + jitterMs;
           
           const delay = start - performance.now();
-          const visualTimeout = setTimeout(() => {
-            if (activeOutputPortRef.current) {
-              try {
-                if (sustain) {
-                  activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 127])); // Sustain Pedal ON
-                }
-                activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity])); // Note On
-              } catch (err) {}
-            }
+          const midiStartTimestamp = performance.now() + Math.max(0, delay);
+          const midiEndTimestamp = midiStartTimestamp + durationMs;
 
+          // 1. HARDWARE SCHEDULING (Zero-Latency, immune to React pauses)
+          if (activeOutputPortRef.current) {
+            try {
+              if (sustain) {
+                activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 127]), midiStartTimestamp);
+              }
+              activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity]), midiStartTimestamp);
+              
+              // Schedule note off via hardware too
+              activeOutputPortRef.current.send(new Uint8Array([0x80 | channelIdx, midiNum, 0x00]), midiEndTimestamp);
+              if (sustain) {
+                activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 0]), midiEndTimestamp);
+              }
+            } catch (err) {}
+          }
+
+          // 2. UI STATE SCHEDULING (Visual only, can lag without affecting audio)
+          const visualTimeout = setTimeout(() => {
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
+            if (noteId && !activeNoteIdsRef.current.includes(noteId)) {
+              activeNoteIdsRef.current.push(noteId);
+            }
 
             const offTimeout = setTimeout(() => {
-              if (activeOutputPortRef.current) {
-                try {
-                  activeOutputPortRef.current.send(new Uint8Array([0x80 | channelIdx, midiNum, 0x00])); // Note Off
-                  if (sustain) {
-                    activeOutputPortRef.current.send(new Uint8Array([0xB0 | channelIdx, 64, 0])); // Sustain Pedal OFF
-                  }
-                } catch (err) {}
-              }
               activeMidiNotesRef.current = activeMidiNotesRef.current.filter(n => n !== midiNum);
+              if (noteId) {
+                activeNoteIdsRef.current = activeNoteIdsRef.current.filter(id => id !== noteId);
+              }
             }, durationMs);
             trackTimeoutsRef.current.push(offTimeout);
           }, Math.max(0, delay));
@@ -1666,6 +1697,8 @@ export function useSongPlayback(
         setPlaybackSectionId(null);
         setActivePlaybackNotes([]);
         activePlaybackNotesRef.current = [];
+        setActiveNoteIds([]);
+        activeNoteIdsRef.current = [];
 
         subTimeoutsRef.current.forEach(clearTimeout);
         subTimeoutsRef.current = [];
@@ -1675,8 +1708,10 @@ export function useSongPlayback(
           try {
             const out = activeOutputPortRef.current;
             for (let ch = 0; ch < 16; ch++) {
-              out.send([0xB0 | ch, 123, 0]);
-              out.send([0xB0 | ch, 120, 0]);
+              out.send([0xB0 | ch, 123, 0]); // All Notes Off
+              out.send([0xB0 | ch, 120, 0]); // All Sound Off
+              out.send([0xB0 | ch, 64, 0]);  // Sustain Off
+              out.send([0xB0 | ch, 121, 0]); // Reset All Controllers
             }
           } catch (e) {
             console.warn("Error in deferred MIDI reset:", e);
@@ -1702,6 +1737,8 @@ export function useSongPlayback(
     
     setActivePlaybackNotes([]);
     activePlaybackNotesRef.current = [];
+    setActiveNoteIds([]);
+    activeNoteIdsRef.current = [];
 
     if (activeOutputPortRef.current) {
       try {
@@ -1719,8 +1756,10 @@ export function useSongPlayback(
         });
 
         for (let ch = 0; ch < 16; ch++) {
-          out.send([0xB0 | ch, 123, 0]);
-          out.send([0xB0 | ch, 120, 0]);
+          out.send([0xB0 | ch, 123, 0]); // All Notes Off
+          out.send([0xB0 | ch, 120, 0]); // All Sound Off
+          out.send([0xB0 | ch, 64, 0]);  // Sustain Off
+          out.send([0xB0 | ch, 121, 0]); // Reset All Controllers
         }
       } catch (e) {
         console.warn("Error enviando apagado completo de MIDI:", e);
@@ -1741,6 +1780,9 @@ export function useSongPlayback(
           const out = activeOutputPortRef.current;
           for (let ch = 0; ch < 16; ch++) {
             out.send([0xB0 | ch, 123, 0]);
+            out.send([0xB0 | ch, 120, 0]);
+            out.send([0xB0 | ch, 64, 0]);
+            out.send([0xB0 | ch, 121, 0]);
           }
         } catch (e) {}
       }
@@ -1800,9 +1842,9 @@ export function useSongPlayback(
       }
     }
 
-    // Initialize the queue time with a 200ms buffer for precise scheduling.
-    // A larger initial buffer prevents stutter caused by React state updates when hitting play.
-    playbackTimeQueueRef.current = performance.now() + 200;
+    // Initialize the queue time with an 800ms buffer for precise scheduling.
+    // A much larger initial buffer (800ms) prevents ANY stutter caused by React state updates when hitting play.
+    playbackTimeQueueRef.current = performance.now() + 800;
 
     const runPlaybackStep = (currentIdx: number) => {
       if (!isPlayingRef.current) return;
@@ -1811,7 +1853,7 @@ export function useSongPlayback(
       if (!chord) {
         const currentLoop = loopModeRef.current;
         if (currentLoop === "song") {
-          playbackTimeQueueRef.current = performance.now() + 50;
+          playbackTimeQueueRef.current = performance.now() + 800;
           runPlaybackStep(0);
         } else {
           stopPlayback(true);
@@ -1843,6 +1885,7 @@ export function useSongPlayback(
         if (chord.chordIndexInSection === 0 || currentIdx === startIdx) {
           trackTimeoutsRef.current.forEach(clearTimeout);
           trackTimeoutsRef.current = [];
+          activeNoteIdsRef.current = []; // Evitar sílabas colgadas
         }
 
         if (activeSongRef.current.tracks && activeSongRef.current.tracks.length > 0) {
@@ -1869,7 +1912,8 @@ export function useSongPlayback(
                     track.midiChannel,
                     "grand-piano",
                     startTimeMs + startDelayMs,
-                    noteObj.sustain
+                    noteObj.sustain,
+                    noteObj.id
                   );
                 }
               });
@@ -1902,7 +1946,8 @@ export function useSongPlayback(
                     track.midiChannel,
                     track.instrumentPreset || "grand-piano",
                     startTimeMs + startDelayMs,
-                    noteObj.sustain
+                    noteObj.sustain,
+                    noteObj.id
                   );
                 }
               });
@@ -1927,9 +1972,10 @@ export function useSongPlayback(
       // Advance the time queue by the duration of the current chord step
       playbackTimeQueueRef.current += chordDurationMs;
 
-      // Lookahead of 150ms ensures that even if main thread gets blocked briefly,
+      // Lookahead of 800ms ensures that even if main thread gets blocked severely by React rendering,
       // the worker wakes up early enough to queue the next notes in the Web MIDI hardware buffer.
-      const lookaheadMs = 150;
+      // This massive buffer provides strict, unwavering playback priority.
+      const lookaheadMs = 800;
       const nextWakeupTime = playbackTimeQueueRef.current - lookaheadMs;
       const delay = nextWakeupTime - performance.now();
 
@@ -1995,6 +2041,7 @@ export function useSongPlayback(
     newRhythmName,
     setNewRhythmName,
     activePlaybackNotes,
+    activeNoteIds,
     midiOutputs,
     selectedOutputId,
     setSelectedOutputId,

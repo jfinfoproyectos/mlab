@@ -18,7 +18,8 @@ interface TrackComposerDialogProps {
     midiChannel: number,
     instrumentPreset: string,
     prompt: string,
-    syncWithProgression?: boolean
+    syncWithProgression?: boolean,
+    lyrics?: string
   ) => void;
 }
 
@@ -52,7 +53,8 @@ export function TrackComposerDialog({
       composerMidiChannel,
       composerInstrumentPreset,
       composerUserPrompt,
-      true // Siempre sincronizado estrictamente
+      true, // Siempre sincronizado estrictamente
+      "" // Las letras ahora se obtienen automáticamente de la sección
     );
     setComposerUserPrompt("");
   };
@@ -128,10 +130,10 @@ export function TrackComposerDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => applyTemplate("Batería Estándar", 10, "drum-kit", "Patrón de batería rock/pop estándar en canal 10. Bombo en tiempo 1 y 3, caja en tiempo 2 y 4, charles en corcheas.")}
-                className="h-auto py-2.5 px-3 rounded-xl border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:text-amber-500 flex flex-col items-start gap-1 justify-start transition-all"
+                onClick={() => applyTemplate("Solo de Guitarra", 7, "electric-guitar", "Solo de guitarra expresivo con notas largas sostenidas, sutiles silencios y figuras rítmicas rápidas ocasionales para dar un tono rock/blues emocional.")}
+                className="h-auto py-2.5 px-3 rounded-xl border-purple-500/10 hover:bg-purple-500/10 hover:text-purple-400 flex flex-col items-start gap-1 justify-start transition-all"
               >
-                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Drum className="w-3.5 h-3.5" /> Batería (Ch. 10)</div>
+                <div className="flex items-center gap-1.5 font-bold text-[11px]"><Guitar className="w-3.5 h-3.5" /> Solo Guitarra</div>
               </Button>
             </div>
           </div>

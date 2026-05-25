@@ -2,6 +2,8 @@ import { z } from "zod";
 import { chordProgressionSchema } from '@/features/chord-generator/schemas/chord-generator.schema';
 
 export const songInputSchema = z.object({
+  generationMode: z.enum(["idea", "lyrics"]).optional(),
+  lyrics: z.string().optional(),
   prompt: z.string().min(1, "El prompt es obligatorio"),
   key: z.string().optional(),
   scale: z.string().optional(),
@@ -29,6 +31,7 @@ export const songSectionBlueprintSchema = z.object({
   chordCount: z.number().min(2).max(8).optional().describe("Número de acordes sugerido para esta sección"),
   reusedFrom: z.string().optional().describe("Nombre exacto de la sección previa de la cual clonar la progresión (ej. 'Coro 1')"),
   variationOf: z.string().optional().describe("Nombre exacto de la sección previa de la cual es una variación armónica (ej. 'Verso 1')"),
+  lyrics: z.string().optional().describe("Letra asignada a esta sección específica"),
 });
 
 export const songBlueprintSchema = z.object({
@@ -44,11 +47,13 @@ export type SongSectionBlueprint = z.infer<typeof songSectionBlueprintSchema>;
 export type SongBlueprint = z.infer<typeof songBlueprintSchema>;
 
 export const songTrackNoteSchema = z.object({
+  id: z.string().optional().describe("Identificador único de la nota"),
   note: z.string().describe("Nota musical con octava (ej: C4, Eb5)"),
   startBeat: z.number().describe("Tiempo de inicio en negras relativo a la sección (0.0 a 16.0)"),
   durationBeats: z.number().describe("Duración de la nota en negras (ej: 0.5, 1.0, 2.0)"),
   velocity: z.number().min(0.0).max(1.0).describe("Velocidad o volumen de la nota (0.0 a 1.0)"),
   sustain: z.boolean().optional().describe("Si es true, se aplicará el efecto pedal sustain MIDI (CC 64)"),
+  syllable: z.string().optional().describe("Sílaba de la letra cantada en esta nota (solo para melodías vocales)"),
 });
 
 export type SongTrackNote = z.infer<typeof songTrackNoteSchema>;
@@ -97,6 +102,7 @@ export const songSectionSchema = z.object({
   chordCount: z.number().optional(),
   reusedFrom: z.string().optional(),
   variationOf: z.string().optional(),
+  lyrics: z.string().optional(),
   tracks: z.array(songSectionTrackSchema).optional(),
 });
 
@@ -109,6 +115,7 @@ export const songSchema = z.object({
   key: z.string(),
   tempo: z.number(),
   description: z.string(),
+  lyrics: z.string().optional(),
   sections: z.array(songSectionSchema),
   tracks: z.array(songTrackSchema).optional(),
   playbackVolume: z.number().optional().describe("Volumen master de reproducción"),
