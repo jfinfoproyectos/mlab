@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { PianoKeyboard } from '@/features/piano-roll/components/piano-keyboard';
 import { SongStructure } from '@/features/song-composer/schemas/song-generator.schema';
 
