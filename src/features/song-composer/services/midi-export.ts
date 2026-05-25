@@ -1,5 +1,5 @@
 import { Midi } from '@tonejs/midi';
-import { SongStructure, PlayableNote } from '../schemas/song.schema';
+import { SongStructure, SongTrackNote } from '../schemas/song-generator.schema';
 
 /**
  * Convierte una estructura de canción en un archivo MIDI binario y dispara la descarga.
@@ -66,7 +66,7 @@ export function exportSongToMidi(song: SongStructure) {
           }
 
           if (genTrack.notes && genTrack.notes.length > 0) {
-            genTrack.notes.forEach((note: PlayableNote) => {
+            genTrack.notes.forEach((note: SongTrackNote) => {
               // Convert beat to absolute seconds
               const noteStartSec = sectionStartSec + (note.startBeat * beatDurationSec);
               const noteDurSec = note.durationBeats * beatDurationSec;
@@ -85,7 +85,7 @@ export function exportSongToMidi(song: SongStructure) {
 
     // Serialize to binary
     const midiArray = midi.toArray();
-    const blob = new Blob([midiArray], { type: "audio/midi" });
+    const blob = new Blob([midiArray as any], { type: "audio/midi" });
     
     // Trigger download
     const url = URL.createObjectURL(blob);
