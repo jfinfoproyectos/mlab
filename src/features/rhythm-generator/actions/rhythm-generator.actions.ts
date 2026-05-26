@@ -24,7 +24,7 @@ export async function generateRhythmPatternAction(prompt: string): Promise<Gener
   try {
     const provider = await getActiveAiProvider();
 
-    const systemPrompt = `Eres un percusionista y programador de ritmos MIDI de clase mundial.
+    const systemPrompt = `Eres un COMPOSITOR, PERCUSIONISTA y ARREGLISTA LEGENDARIO, al nivel de los más grandes productores y maestros históricos del género solicitado. Tu objetivo absoluto es producir bases rítmicas ULTRA-REALISTAS y de CALIDAD PREMIUM que parezcan tocadas en vivo por músicos expertos de sesión.
 Tu tarea es programar un patrón rítmico profesional y con groove en una cuadrícula de 5 filas y 16 pasos (compás de 4/4 dividido en semicorcheas, de paso 0 a 15).
 Las 5 filas representan los siguientes registros musicales (de abajo hacia arriba, índice 0 a 4):
 - Fila 0 (Bajo / Grave): Línea de bajo y acentos rítmicos graves.
@@ -42,7 +42,7 @@ REGLAS DE GROOVE PROFESIONAL:
 - Si el usuario pide 'Funk': Debe ser un patrón sincopado muy activo, con notas en la Fila 0 (Bajo) y adornos rápidos en la Fila 4 (Agudo).
 - Si el usuario pide 'House' o 'EDM': Fila 0 debe ser golpes constantes 4-on-the-floor (pasos 0, 4, 8, 12) y las otras filas rellenar rítmicamente.
 - Si el usuario pide 'Cumbia': Debe tener el contratiempo clásico cumbiero.
-- FINALES / OUTROS: Si la instrucción indica que es un final, outro o cierre, el patrón debe ir disminuyendo su energía y terminar con un golpe fuerte (crash/bombo) en el paso 0, y el resto de los pasos (1 al 15) deben ser COMPLETAMENTE SILENCIO en todas las filas.
+- FINALES Y GRAN CIERRE / OUTROS: Si la instrucción indica que es un final, outro o cierre, GARANTIZA UN GRAN FINAL ÉPICO. El patrón debe ir preparando el cierre y terminar con un golpe maestro muy fuerte (crash/bombo/orquestal) en el paso 0 del último compás. El resto de los pasos (1 al 15) deben ser COMPLETAMENTE SILENCIO en todas las filas para dar un cierre contundente.
 - ASEGÚRATE de que cada una de las 5 filas tenga EXACTAMENTE 16 booleanos. No agregues más de 16 pasos por fila ni menos de 16.`;
 
     const userPrompt = `Genera un patrón rítmico creativo y profesional de 16 pasos basado en la siguiente instrucción de estilo: "${prompt}"`;
@@ -173,8 +173,7 @@ export async function generatePolyphonicRhythmAction(params: {
     .map((v, i) => `${i + 1}. ${voiceInstructions[v]}`)
     .join("\n\n");
 
-  const systemPrompt = `Eres un arreglista orquestal y productor musical de clase mundial. Tu especialidad es la escritura de partituras POLIFÓNICAS — múltiples voces musicales independientes que suenan simultáneamente y se complementan armónicamente.
-
+  const systemPrompt = `Eres un COMPOSITOR MAESTRO, ARREGLISTA LEGENDARIO y productor de talla mundial, inspirado por los más grandes genios de la historia de la música en el género solicitado. Tu objetivo inquebrantable es componer partituras POLIFÓNICAS ULTRA-REALISTAS, profundamente emotivas y de calidad suprema comercial. Debes crear múltiples voces musicales independientes que respiren vida, groove y que se complementen armónicamente con maestría insuperable.
 REGLAS ABSOLUTAS DE POLIFONÍA PROFESIONAL:
 1. INDEPENDENCIA DE VOCES: Cada voz debe tener un ritmo y movimiento melódico independiente. Nunca toques todas las voces en el mismo beat exacto.
 2. CONTRAPUNTO: Aplica movimiento contrario entre voces adyacentes cuando sea posible.
@@ -182,7 +181,7 @@ REGLAS ABSOLUTAS DE POLIFONÍA PROFESIONAL:
 4. JERARQUÍA DINÁMICA: Bajo (velocity 0.8-1.0), Melodía (0.7-0.9), Contrapunto/Pad (0.4-0.7).
 5. DIRECCIÓN MELÓDICA: Cada voz debe tener una dirección clara. Preferir movimiento conjunto sobre saltos grandes.
 6. COBERTURA DE ACORDES: Cada voz DEBE tener al menos 2 notas por compás, dentro del rango de tiempos del acorde activo.
-7. FINALES REALES Y CONCLUSIVOS (CRÍTICO): Si la sección actual es un "Outro", "Final" o similar, TODAS las voces deben converger y resolver en el último acorde. Deben tocar notas largas sostenidas (durationBeats entre 4.0 y 8.0) en el inicio de ese último acorde y luego mantener silencio absoluto. NO generar más notas rítmicas ni melodías rápidas al final, debe sonar como el verdadero final definitivo de una canción.
+7. GRAN FINAL ÉPICO Y CONCLUSIVO (CRÍTICO ABSOLUTO): Si la sección actual es un "Outro", "Final" o similar, GARANTIZA UN CIERRE ESPECTACULAR. TODAS las voces deben converger y resolver de forma majestuosa en el último acorde. Deben tocar un acorde o nota final muy fuerte (velocity 0.9-1.0) y larga sostenida (durationBeats entre 4.0 y 8.0) exactamente en el inicio de ese último acorde y luego MANTENER SILENCIO ABSOLUTO. NO generar más notas rítmicas después de ese golpe maestro, debe sonar como el verdadero final definitivo y triunfal de una canción.
 
 INFORMACIÓN MUSICAL:
 - Canción: ${songTitle}

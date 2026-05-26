@@ -65,7 +65,7 @@ REGLAS DE TEORÍA Y CORRESPONDENCIA DE BAJO (OBLIGATORIO):
 - INCLUSIÓN DE LA TÓNICA (OBLIGATORIO): Todo acorde generado DEBE incluir obligatoriamente la tónica (Root/Fundamental) del acorde dentro del array 'pianoNotes'. Por ejemplo, para Ebm9, 'pianoNotes' DEBE incluir la nota Eb (ej. Eb3 o Eb4). Queda STRICTAMENTE PROHIBIDO utilizar voicings 'Rootless' (sin tónica) que omitan la nota fundamental.
 
 REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
-- Genera EXACTAMENTE ${count} acordes (ni más ni menos).
+- CANTIDAD DE ACORDES LIBRE: Genera la cantidad de acordes que consideres necesaria para expresar la idea completa. No hay límite.
 - 'description' principal de la progresión: MÁXIMO 8 palabras.
 - 'description' individual de cada acorde: MÁXIMO 5 palabras.
 - 'romanNumeral': MÁXIMO 2 palabras (ej: 'i9', 'V7b9', 'bVImaj7').
@@ -74,10 +74,13 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
 - 'voicing': MÁXIMO 2 palabras (ej: 'Drop 2', 'Close').
 - 'inversion': MÁXIMO 2 palabras (ej: 'Fundamental', '1ra Inversión').
 - 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).
-- RITMO ARMÓNICO VARIABLE (CRÍTICO): Debes asignar una 'duration' a cada acorde de forma inteligente y realista para la progresión (en tiempos/beats). No asumas que todo dura 4 tiempos. Puedes usar 1, 2, 3, 4 o fracciones (0.5, 1.5). La suma de la duración de todos los acordes representará el total de tiempos de la sección. Ajusta la velocidad armónica (armonía rítmica) al género.`;
+- RITMO ARMÓNICO VARIABLE (LIBERTAD CREATIVA): Asigna una 'duration' a cada acorde (en tiempos/beats). Usa valores como 1, 2, 3, 4 o fracciones. 
+  >>> REGLA CRÍTICA CONTRA EL SILENCIO: Ningún acorde puede tener una 'duration' mayor a 8 tiempos. El piano se desvanece rápido. Si quieres que un acorde suene por mucho tiempo, DEBES generar MÁS acordes repetidos o distintos en lugar de poner duraciones gigantes. No pongas duraciones de 16 o 32, eso genera silencios muertos.
+- CONTINUIDAD ENTRE SECCIONES: A menos que el prompt indique explícitamente que es un "Outro" o "Final", OBLIGATORIAMENTE la progresión debe quedar abierta o transicionar de forma natural (ej. terminando en dominante, subdominante o acordes de paso). NO generes finales conclusivos pesados que hagan sentir que la canción se acabó en cada sección.
+- GRAN RESOLUCIÓN FINAL EN OUTROS: SOLO si el usuario menciona que esto es un "Outro" o "Final", el último acorde de la progresión debe ser una resolución majestuosa, conclusiva y épica (usualmente regresando a la tónica) que dé la sensación definitiva de que la canción ha terminado.`;
 
     // Build target user prompt respecting key, scale, and tempo
-    let targetPrompt = `Genera una progresión de exactamente ${count} acordes basada en el prompt: "${validated.prompt}".\n`;
+    let targetPrompt = `Genera una progresión armónica completa y creativa basada en el prompt: "${validated.prompt}". Tienes absoluta libertad en la cantidad de acordes a generar.\n`;
     if (validated.key && validated.key !== "Automático") {
       targetPrompt += `- Tonalidad obligatoria: Debe estar estrictamente en la tonalidad de: ${validated.key}.\n`;
     }
@@ -88,7 +91,10 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
       targetPrompt += `- Tempo (BPM) obligatorio: Debe sugerir exactamente: ${validated.tempo} BPM.\n`;
     }
     if (validated.lyrics && validated.lyrics.trim() !== "") {
-      targetPrompt += `\n- LONGITUD Y RITMO ARMÓNICO PARA LETRA: Esta sección contiene la siguiente letra:\n"""\n${validated.lyrics}\n"""\nAsigna la 'duration' a cada uno de los ${count} acordes de forma natural (usualmente 4 tiempos, o a veces 2 u 8). La cantidad de acordes ya fue pre-calculada para coincidir con la longitud de esta letra, así que no necesitas forzar duraciones artificialmente largas.\n`;
+      targetPrompt += `\n- LONGITUD Y RITMO ARMÓNICO PARA LETRA: Esta sección contiene la siguiente letra:\n"""\n${validated.lyrics}\n"""\nAsigna la 'duration' de forma natural y genera TANTOS ACORDES como necesites para acompañar toda la letra fluidamente.\n`;
+    }
+    if (validated.targetBeats && validated.targetBeats > 0) {
+      targetPrompt += `\n- TIEMPO SUGERIDO: El director musical sugirió que esta sección debería durar aproximadamente ${validated.targetBeats} tiempos (beats). Úsalo como una INSPIRACIÓN, no como una regla rígida. Compón libremente tus acordes y duraciones ('duration') para llenar este espacio de forma natural y artística.\n`;
     }
 
     // 3. Generate structured JSON output using the recommended Vercel AI SDK generateText API with Output.object

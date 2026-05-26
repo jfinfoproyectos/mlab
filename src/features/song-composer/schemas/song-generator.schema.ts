@@ -8,9 +8,7 @@ export const songInputSchema = z.object({
   key: z.string().optional(),
   scale: z.string().optional(),
   tempo: z.string().optional(),
-  structureMode: z.string().optional(),
-  chordsMode: z.string().optional(),
-  repetitionMode: z.string().optional(),
+  targetDurationMinutes: z.number().optional().describe("Duración objetivo de la canción en minutos (ej. 2.5, 3.0)"),
   musicStyle: z.string().optional(),
   autoGenerateRhythm: z.boolean().optional(),
   rhythmPolyphonic: z.preprocess((val) => {
@@ -28,7 +26,7 @@ export const songSectionBlueprintSchema = z.object({
   prompt: z.string().describe("Instrucción armónica de color o vibra específica de esta sección"),
   key: z.string().describe("Tonalidad sugerida de esta sección (ej. C Minor)"),
   scale: z.string().describe("Escala de esta sección (ej. Dórico, Mayor)"),
-  chordCount: z.number().min(2).max(8).optional().describe("Número de acordes sugerido para esta sección"),
+  chordCount: z.number().min(2).optional().describe("Número de acordes sugerido para esta sección"),
   reusedFrom: z.string().optional().describe("Nombre exacto de la sección previa de la cual clonar la progresión (ej. 'Coro 1')"),
   variationOf: z.string().optional().describe("Nombre exacto de la sección previa de la cual es una variación armónica (ej. 'Verso 1')"),
   lyrics: z.string().optional().describe("Letra asignada a esta sección específica"),
@@ -40,7 +38,7 @@ export const songBlueprintSchema = z.object({
   key: z.string().describe("Tonalidad general sugerida de la canción (ej. C Minor)"),
   tempo: z.number().describe("BPM general sugerido de la canción (ej. 80)"),
   description: z.string().describe("Descripción de la narrativa o concepto (MÁXIMO 15 palabras)"),
-  sections: z.array(songSectionBlueprintSchema).describe("Estructura ordenada de secciones (de 3 a 8 secciones, permitiendo repeticiones y variaciones lógicas)"),
+  sections: z.array(songSectionBlueprintSchema).describe("Estructura ordenada de secciones, cantidad totalmente libre dictada por la duración o letra"),
 });
 
 export type SongSectionBlueprint = z.infer<typeof songSectionBlueprintSchema>;

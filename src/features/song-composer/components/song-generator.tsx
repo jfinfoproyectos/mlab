@@ -83,7 +83,8 @@ import {
   User,
   Presentation,
   Download,
-  Drum
+  Drum,
+  Clock
 } from "lucide-react";
 
 
@@ -349,6 +350,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               try {
                 const res = await generateSectionTrackAction({
                   songTitle: mergedSong.title,
+                  songGenre: mergedSong.genre,
                   sectionType: sect.type,
                   sectionKey: sect.key,
                   sectionScale: sect.scale,
@@ -808,6 +810,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
             const result = await generateSectionTrackAction({
               songTitle: targetSong.title || "Mi Canción",
+              songGenre: targetSong.genre,
               sectionType: section.type,
               sectionKey: section.key || targetSong.key || "C",
               sectionScale: section.scale || "major",
@@ -1323,6 +1326,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
           try {
             const payload: any = {
               songTitle: activeSong.title,
+              songGenre: activeSong.genre,
               sectionType: sect.type,
               sectionKey: sect.key,
               sectionScale: sect.scale,
@@ -1517,6 +1521,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
       const res = await generateSectionTrackAction({
         songTitle: activeSong.title,
+        songGenre: activeSong.genre,
         sectionType: section.type,
         sectionKey: section.key,
         sectionScale: section.scale,
@@ -2020,6 +2025,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             
             const payload: any = {
               songTitle: finalSong.title,
+              songGenre: finalSong.genre,
               sectionType: sect.type,
               sectionKey: sect.key,
               sectionScale: sect.scale,
@@ -2408,6 +2414,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         try {
           const actionPayload: any = {
             songTitle: activeSong.title,
+            songGenre: activeSong.genre,
             sectionType: section.type,
             sectionKey: section.key,
             sectionScale: section.scale,
@@ -3291,41 +3298,62 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               ) : (
                 <div className="space-y-6">
                   {/* Song Header Card */}
-                  <div className="rounded-3xl border border-primary/10 bg-card/35 backdrop-blur-sm p-6 space-y-4 relative overflow-hidden shadow-lg">
-                    <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
-                    
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-primary/15 text-primary">
-                          {activeSong.genre}
-                        </span>
-                        {activeSong.id && (
-                          <span className="text-[9px] font-mono font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                            Sincronizada con DB
-                          </span>
-                        )}
-                      </div>
-                      
-                      <h3 className="text-3xl font-black tracking-tight text-foreground">
-                        {activeSong.title}
-                      </h3>
-                      <p className="text-muted-foreground text-sm max-w-2xl leading-relaxed italic">
-                        "{activeSong.description}"
-                      </p>
-                    </div>
+                  {(() => {
+                    let totalBeats = 0;
+                    activeSong.sections.forEach(s => {
+                      if (s.chords && s.chords.chords) {
+                        s.chords.chords.forEach(c => {
+                          totalBeats += c.duration || 4;
+                        });
+                      }
+                    });
+                    const totalSeconds = activeSong.tempo ? Math.round((totalBeats / activeSong.tempo) * 60) : 0;
+                    const mins = Math.floor(totalSeconds / 60);
+                    const secs = totalSeconds % 60;
+                    const timeString = totalSeconds > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : "--:--";
 
-                    {/* Song-level badges bar */}
-                    <div className="flex flex-wrap gap-3 pt-2">
-                      <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-muted/50 border border-border text-xs font-semibold text-muted-foreground">
-                        <Compass className="w-3.5 h-3.5 text-primary" />
-                        Tonalidad General: <span className="text-foreground">{activeSong.key}</span>
+                    return (
+                      <div className="rounded-3xl border border-primary/10 bg-card/35 backdrop-blur-sm p-6 space-y-4 relative overflow-hidden shadow-lg">
+                        <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+                        
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-primary/15 text-primary">
+                              {activeSong.genre}
+                            </span>
+                            {activeSong.id && (
+                              <span className="text-[9px] font-mono font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                                Sincronizada con DB
+                              </span>
+                            )}
+                          </div>
+                          
+                          <h3 className="text-3xl font-black tracking-tight text-foreground">
+                            {activeSong.title}
+                          </h3>
+                          <p className="text-muted-foreground text-sm max-w-2xl leading-relaxed italic">
+                            "{activeSong.description}"
+                          </p>
+                        </div>
+
+                        {/* Song-level badges bar */}
+                        <div className="flex flex-wrap gap-3 pt-2">
+                          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-muted/50 border border-border text-xs font-semibold text-muted-foreground">
+                            <Compass className="w-3.5 h-3.5 text-primary" />
+                            Tonalidad General: <span className="text-foreground">{activeSong.key}</span>
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-muted/50 border border-border text-xs font-semibold text-muted-foreground">
+                            <Activity className="w-3.5 h-3.5 text-primary" />
+                            Tempo General: <span className="text-foreground">{activeSong.tempo} BPM</span>
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                            Duración: <span className="text-emerald-700 dark:text-emerald-300">{timeString}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-muted/50 border border-border text-xs font-semibold text-muted-foreground">
-                        <Activity className="w-3.5 h-3.5 text-primary" />
-                        Tempo General: <span className="text-foreground">{activeSong.tempo} BPM</span>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   <ArrangementTimeline
                     activeSong={activeSong}

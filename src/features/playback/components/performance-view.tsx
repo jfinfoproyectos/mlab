@@ -167,10 +167,10 @@ export function PerformanceView({
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-zinc-950 text-white rounded-none md:rounded-3xl overflow-hidden relative shadow-2xl border-0 md:border md:border-zinc-800">
+    <div className="w-full h-full flex flex-col bg-background text-foreground rounded-none md:rounded-3xl overflow-hidden relative shadow-2xl border-0 md:border md:border-border">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-3 md:p-4 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 shrink-0 z-20">
+        <div className="flex items-center justify-between p-3 md:p-4 bg-background/80 backdrop-blur-md border-b border-border shrink-0 z-20">
           <div className="flex items-center gap-3">
             <div className="bg-emerald-500/20 p-2 rounded-xl">
               <Music className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
@@ -179,14 +179,14 @@ export function PerformanceView({
               <h2 className="text-base md:text-lg font-black uppercase tracking-wider">
                 Modo Interpretación
               </h2>
-              <p className="text-[10px] md:text-xs text-zinc-400 font-medium">
+              <p className="text-[10px] md:text-xs text-muted-foreground font-medium">
                 {activeSong?.title || "Sin título"}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
-            <div className="hidden sm:flex items-center gap-2 bg-zinc-800/50 px-3 py-1.5 md:px-4 md:py-2 rounded-xl border border-zinc-700/50">
+            <div className="hidden sm:flex items-center gap-2 bg-muted/50 px-3 py-1.5 md:px-4 md:py-2 rounded-xl border border-border/50">
               <Activity className="w-3 h-3 md:w-4 md:h-4 text-emerald-400" />
               <span className="font-mono text-xs md:text-sm font-bold text-emerald-400">
                 {playbackBpm} BPM
@@ -211,7 +211,7 @@ export function PerformanceView({
                 onClick={stopPlayback}
                 size="icon"
                 variant="outline"
-                className="w-10 h-10 md:w-12 md:h-12 rounded-full border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-700"
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted"
               >
                 <Square className="w-4 h-4 md:w-5 md:h-5 fill-current" />
               </Button>
@@ -221,14 +221,14 @@ export function PerformanceView({
 
         {/* Karaoke Panel */}
         {activeSong?.sections.some(s => s.lyrics) && (
-          <div className="w-full bg-black/80 border-b border-emerald-900/30 p-6 md:p-8 flex flex-col items-center justify-center min-h-[140px] z-10 shrink-0 relative overflow-hidden">
+          <div className="w-full bg-foreground/5 border-b border-emerald-500/10 p-6 md:p-8 flex flex-col items-center justify-center min-h-[140px] z-10 shrink-0 relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 via-transparent to-emerald-500/5"></div>
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(16,185,129,0.1),transparent_70%)]"></div>
             
             <p className="text-[10px] md:text-xs text-emerald-500/60 font-bold tracking-widest uppercase mb-2 z-10">
               {activeSection?.type || "Letra"}
             </p>
-            <h3 className={`text-xl md:text-3xl font-black text-center max-w-4xl leading-relaxed z-10 transition-all duration-300 ${isPlaying ? "scale-105" : "text-zinc-500"}`}>
+            <h3 className={`text-xl md:text-3xl font-black text-center max-w-4xl leading-relaxed z-10 transition-all duration-300 ${isPlaying ? "scale-105" : "text-muted-foreground"}`}>
               {hasSyllables ? (
                 activeVocalNotes.map((note, idx) => {
                   if (!note.syllable) return null;
@@ -245,8 +245,8 @@ export function PerformanceView({
                           isActive 
                             ? "text-emerald-300 drop-shadow-[0_0_15px_rgba(16,185,129,0.9)] scale-110 -translate-y-1" 
                             : playedNoteIds.has(note.id!) 
-                              ? "text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]"
-                              : "text-zinc-600"
+                              ? "text-foreground drop-shadow-[0_0_8px_rgba(255,255,255,0.2)] dark:drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                              : "text-muted-foreground/50"
                         }`}
                       >
                         {displayText}
@@ -279,12 +279,12 @@ export function PerformanceView({
                   key={measure.mIdx}
                   ref={isActiveMeasure ? activeChordRef as React.RefObject<HTMLDivElement> : null}
                   className={`relative h-20 md:h-24 rounded-lg border flex flex-col transition-colors flex-auto min-w-[140px] max-w-full ${
-                    isActiveMeasure ? "border-emerald-500/50 bg-emerald-950/10 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-zinc-800/80 bg-zinc-900/30"
+                    isActiveMeasure ? "border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-border/80 bg-card"
                   }`}
                 >
                   {/* Measure Header */}
                   <div className={`text-[10px] md:text-xs font-mono font-bold px-2 py-0.5 border-b z-10 shrink-0 ${
-                    isActiveMeasure ? "bg-emerald-900/40 text-emerald-400 border-emerald-500/30" : "bg-zinc-800/50 text-zinc-500 border-zinc-800/80"
+                    isActiveMeasure ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : "bg-muted/50 text-muted-foreground border-border/80"
                   }`}>
                     Compás {measure.mIdx + 1}
                   </div>
@@ -292,7 +292,7 @@ export function PerformanceView({
                   {/* Measure Grid Lines (4 beats) */}
                   <div className="absolute inset-0 top-5 flex z-0 opacity-20 pointer-events-none">
                     {[0, 1, 2, 3].map(beat => (
-                      <div key={beat} className="flex-1 border-r border-zinc-700/50 last:border-r-0 h-full min-w-[30px]" />
+                      <div key={beat} className="flex-1 border-r border-border/50 last:border-r-0 h-full min-w-[30px]" />
                     ))}
                   </div>
 
@@ -313,8 +313,8 @@ export function PerformanceView({
                           onClick={() => handleChordClick(chord.sectionId, chord.cIdx)}
                           className={`rounded-md flex items-center justify-center transition-all duration-200 border border-transparent cursor-pointer flex-shrink-0
                             ${isActiveChord 
-                              ? "bg-emerald-500 text-zinc-950 font-black shadow-[0_0_12px_rgba(52,211,153,0.6)] scale-[1.02] z-30" 
-                              : "bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 hover:border-zinc-500 z-10 hover:z-20"
+                              ? "bg-emerald-500 text-white font-black shadow-[0_0_12px_rgba(52,211,153,0.6)] scale-[1.02] z-30" 
+                              : "bg-muted/80 text-muted-foreground hover:bg-muted hover:border-foreground/30 hover:text-foreground z-10 hover:z-20"
                             }
                           `}
                           style={{
@@ -338,8 +338,8 @@ export function PerformanceView({
         </div>
 
         {/* Bottom Piano */}
-        <div className="shrink-0 bg-zinc-900 border-t border-zinc-800 p-2 md:p-4 flex justify-center shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-20">
-          <div className="w-full max-w-5xl rounded-lg overflow-hidden border border-zinc-700/50 shadow-2xl">
+        <div className="shrink-0 bg-background border-t border-border p-2 md:p-4 flex justify-center shadow-[0_-10px_30px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_30px_rgba(0,0,0,0.5)] z-20">
+          <div className="w-full max-w-5xl rounded-lg overflow-hidden border border-border shadow-2xl">
             {/* The activePlaybackNotes will illuminate the exact keys being played, combined with the chord inversion notes */}
             <PianoKeyboard activeNotes={combinedNotes} />
           </div>

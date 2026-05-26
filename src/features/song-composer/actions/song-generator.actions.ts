@@ -33,6 +33,7 @@ export async function generateSongBlueprintAction(data: SongInput): Promise<Gene
 
     const systemPrompt = `Eres un arreglista y productor musical de clase mundial galardonado.
 Tu tarea es componer la estructura de secciones (el Plano Estructural o "Song Blueprint") para una canción completa basada en la instrucción del usuario.
+INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Diseña la canción para que suene como una obra maestra de los artistas más famosos y reconocidos del género solicitado. Evita por completo la monotonía; tus progresiones armónicas y 'prompts' de sección deben reflejar la riqueza, variedad y los matices únicos de las producciones comerciales de alto nivel.
 Debes diseñar una estructura fluida, musical y coherente de entre 3 y 8 secciones (ej: Intro, Verso 1, Coro 1, Verso 2, Coro 2, Puente, Coro 3, Outro).
 
 Para cada sección, debes formular:
@@ -111,7 +112,7 @@ EJEMPLO DE RESPUESTA EN FORMATO VÁLIDO:
 
 REGLAS ESTRICTAS DE CONCISIÓN:
 - 'description': MÁXIMO 15 palabras.
-- 'sections': Por defecto entre 3 y 8 secciones (A MENOS que se provea una letra, en cuyo caso la cantidad dependerá estrictamente de la estructura de la letra, pudiendo ser más o menos).
+- 'sections': Define la cantidad libremente (dependiendo matemáticamente de la duración requerida, o de la estructura si se provee una letra).
 - 'prompt' de cada sección: MÁXIMO 15 palabras.`;
 
     let targetPrompt = "";
@@ -139,41 +140,35 @@ REGLAS ESTRICTAS DE CONCISIÓN:
     // Dynamic structure guidelines
     if (validated.generationMode === "lyrics" && validated.lyrics) {
       targetPrompt += `- ESTRUCTURA LIBRE BASADA EN LETRA: Ignora los límites convencionales de cantidad de secciones. Crea EXACTAMENTE la cantidad de secciones que sean necesarias para acomodar de manera natural cada estrofa o párrafo de la letra provista. Si la letra es muy corta (ej. 2 párrafos), crea 2 o 3 secciones. Si es muy larga, crea tantas como sean necesarias.\n`;
-    } else if (validated.structureMode && validated.structureMode !== "Automático") {
-      if (validated.structureMode === "3-sections") {
-        targetPrompt += `- ESTRUCTURA OBLIGATORIA: La canción DEBE tener exactamente 3 secciones ordenadas (ej. Intro, Coro, Outro).\n`;
-      } else if (validated.structureMode === "4-sections") {
-        targetPrompt += `- ESTRUCTURA OBLIGATORIA: La canción DEBE tener exactamente 4 secciones ordenadas (ej. Intro, Verso, Coro, Outro).\n`;
-      } else if (validated.structureMode === "6-sections") {
-        targetPrompt += `- ESTRUCTURA OBLIGATORIA: La canción DEBE tener exactamente 6 secciones ordenadas (ej. Intro, Verso 1, Coro 1, Verso 2, Coro 2, Outro).\n`;
-      } else if (validated.structureMode === "8-sections") {
-        targetPrompt += `- ESTRUCTURA OBLIGATORIA: La canción DEBE tener exactamente 8 secciones ordenadas (ej. Intro, Verso 1, Coro 1, Verso 2, Coro 2, Puente, Coro 3, Outro).\n`;
+    } else if (validated.targetDurationMinutes) {
+      let mathHint = "";
+      const bpmNum = parseInt(validated.tempo || "100");
+      if (!isNaN(bpmNum) && bpmNum > 0) {
+        const totalBeats = Math.round(validated.targetDurationMinutes * bpmNum);
+        const totalChords = Math.round(totalBeats / 4);
+        mathHint = `\n      SUGERENCIA DE LONGITUD: Para alcanzar ~${validated.targetDurationMinutes} minutos a ${bpmNum} BPM, necesitas generar APROXIMADAMENTE ${totalChords} acordes EN TOTAL distribuidos a lo largo de toda la canción (sumando el 'chordCount' de todas tus secciones).`;
       }
-    } else {
-      targetPrompt += `- Estructura sugerida: Decide libremente y de manera inteligente la cantidad de secciones (entre 3 y 8) según el género y vibe.\n`;
-    }
 
-    // Dynamic chord count guidelines
-    if (validated.chordsMode && validated.chordsMode !== "Automático") {
-      targetPrompt += `- CANTIDAD DE ACORDES OBLIGATORIA: Cada sección generada DEBE tener exactamente ${validated.chordsMode} acordes (el campo 'chordCount' de todas las secciones debe ser exactamente ${validated.chordsMode}).\n`;
+      targetPrompt += `- ESTRUCTURA Y DURACIÓN APROXIMADA (LIBERTAD CREATIVA): El usuario sugiere una duración de aproximadamente ${validated.targetDurationMinutes} minutos. ${mathHint}
+      Actúa como un músico de sesión y compositor de clase mundial. NO uses fórmulas matemáticas rígidas para cortarte la inspiración, pero USA LA SUGERENCIA DE LONGITUD COMO GUÍA para saber cuántas secciones y cuántos acordes ('chordCount') necesitas crear para que la canción no quede demasiado corta.
+      1. Decide cuántas secciones tendrá la canción (ej. 4, 6 u 8).
+      2. Qué tipo de secciones crear.
+      3. Asigna 'chordCount' generosos a cada sección (ej. 8, 16, 24) para que la suma total se acerque a la sugerencia.
+      Prioriza el arte y el flujo emocional, pero asegúrate de generar suficiente material musical para llenar el tiempo requerido.\n`;
     } else {
-      if (validated.generationMode === "lyrics" && validated.lyrics) {
-        targetPrompt += `- Cantidad de acordes por sección: Decide libremente el 'chordCount' (de 4 a 12) según la longitud del texto. Si la letra de la sección es larga, usa un número mayor (ej. 8 o 12 acordes) para que la progresión tenga suficiente desarrollo.\n`;
-      } else {
-        targetPrompt += `- Cantidad de acordes por sección: Decide libremente el 'chordCount' (de 2 a 8) para cada sección según sea musicalmente apropiado.\n`;
-      }
+      targetPrompt += `- Estructura sugerida: Decide de manera inteligente y libre la cantidad de secciones, actuando como un gran compositor de este género.\n`;
     }
+    
+    targetPrompt += `- OUTRO OBLIGATORIO (CRÍTICO ABSOLUTO): Es MANDATORIO que la ÚLTIMA sección de tu estructura se llame "Outro" y que su instrucción armónica ('prompt') prepare un Cierre o Final Espectacular. NINGUNA canción puede terminar de golpe o desvanecerse sin un Outro bien estructurado.\n`;
 
-    // Dynamic repetition / variation guidelines
-    if (validated.repetitionMode && validated.repetitionMode !== "Automático") {
-      if (validated.repetitionMode === "none") {
-        targetPrompt += `- REPETICIONES: Queda STRICTAMENTE PROHIBIDO reutilizar secciones. NO utilices 'reusedFrom' ni 'variationOf' en ninguna sección; todas deben ser independientes.\n`;
-      } else if (validated.repetitionMode === "force-exact") {
-        targetPrompt += `- REPETICIONES: Fuerza y maximiza la repetición exacta. Aquellas secciones del mismo tipo que aparezcan más de una vez deben apuntar obligatoriamente a la primera aparición utilizando el campo 'reusedFrom'.\n`;
-      }
+    // Dynamic chord count and repetition guidelines
+    if (validated.generationMode === "lyrics" && validated.lyrics) {
+      targetPrompt += `- Cantidad de acordes por sección: Decide creativa y libremente el 'chordCount' según la longitud de cada estrofa de la letra.\n`;
     } else {
-      targetPrompt += `- Repeticiones y Variaciones: Decide libremente si usar 'reusedFrom', 'variationOf' o crear desde cero de forma inteligente para mantener coherencia.\n`;
+      targetPrompt += `- Cantidad de acordes por sección: Totalmente libre. Eres el músico, tú decides cuántos acordes necesitas en cada parte para contar tu historia musical.\n`;
     }
+    
+    targetPrompt += `- Repeticiones y Variaciones (CREATIVIDAD): Decide libremente si usar 'reusedFrom', 'variationOf' o componer acordes completamente desde cero para cada sección. Actúa como un experto: repite un coro si necesitas anclar la canción, o haz variaciones sutiles (variationOf) en un segundo verso para mantener el interés.\n`;
 
     console.log("Calling Vercel AI SDK generateText for Song Blueprint (Dynamic with Controls):", targetPrompt);
 
@@ -448,6 +443,7 @@ export async function deleteSongAction(songId: string) {
  */
 export async function generateSectionTrackAction(params: {
   songTitle: string;
+  songGenre?: string;
   sectionType: string;
   sectionKey: string;
   sectionScale: string;
@@ -493,6 +489,7 @@ export async function generateSectionTrackAction(params: {
 }): Promise<{ success: boolean; data?: SongSectionTrack; error?: string }> {
   const { 
     songTitle, 
+    songGenre,
     sectionType, 
     sectionKey, 
     sectionScale, 
@@ -627,6 +624,7 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
 
     const systemPrompt = `Eres un arreglista e instrumentista de sesión de clase mundial galardonado.${ornamentalTheoryBlock ? " Con dominio absoluto de la teoría musical y el contrapunto." : ""}${midiConstraintBlock}
     Tu tarea es componer una pista instrumental o de voz melódica solista que armonice a la perfección con la progresión de acordes de la sección dada.
+    INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Tu interpretación debe sonar viva, humana y extremadamente realista. ¡EVITA TOTALMENTE LA MONOTONÍA! Usa toda tu creatividad para generar líneas musicales profundamente inspiradas en las características específicas del género${songGenre ? ` "${songGenre}"` : ""} y emulando el virtuosismo y el feeling de los artistas más reconocidos mundialmente en este estilo. 
 
     INFORMACIÓN DEL GRID TEMPORAL:
     - La sección dura exactamente ${totalBeats} tiempos/negras.
@@ -638,12 +636,12 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
     ${chordCoverageInstructions}
 
     ⚠️ DIRECTRICES ARMÓNICAS OBLIGATORIAS SEGÚN EL ROL DE LA PISTA:
-    El comportamiento armónico DEBE cambiar drásticamente según qué instrumento estés tocando:
-    1. Si eres BAJO (Bassline): Toca solo fundamentales y quintas en tiempos fuertes.
-    2. Si eres RITMO o ACORDES (Piano, Pads, Guitarra Rítmica): Mantén una adherencia estricta a las notas del acorde (pianoNotes) en un 80%.
+    El comportamiento armónico DEBE cambiar drásticamente según qué instrumento estés tocando, adaptándose de forma súper especial y creativa al género musical${songGenre ? ` (${songGenre})` : ""}:
+    1. Si eres BAJO (Bassline): Toca fundamentales y quintas, pero añade síncopas, notas de paso, slides o articulaciones propias del bajista más legendario del género para darle un groove contagioso y realista.
+    2. Si eres RITMO o ACORDES (Piano, Pads, Guitarra Rítmica, Sintetizadores): Mantén una adherencia estricta a las notas del acorde (pianoNotes) en un 80%, pero usa voicings complejos, inversiones, ritmos sincopados y fraseos característicos de las mejores producciones de este estilo musical.
     3. Si eres MELODÍA, VOZ, LEAD, SOLO o CUALQUIER INSTRUMENTO SOLISTA:
        >>> ¡CREA MELODÍAS MÁGICAS, INSPIRADORAS Y PROFUNDAMENTE HUMANAS! <<<
-       Tus notas NO deben ser un simple arpegio predecible. ESTÁ ESTRICTAMENTE PROHIBIDO limitarte solo a las notas del acorde. DEBES usar la escala completa (${sectionScale} de ${sectionKey}) para tejer una historia musical. Incorpora tensiones que generen emoción (9nas, 11nas, 13ras), notas de paso diatónicas y cromatismos para acercarte a tus notas objetivo. ¡Queremos pura magia musical generada por IA, que emocione a quien la escuche!
+       Tus notas NO deben ser un simple arpegio predecible. ESTÁ ESTRICTAMENTE PROHIBIDO limitarte solo a las notas del acorde. DEBES usar la escala completa (${sectionScale} de ${sectionKey}) para tejer una historia musical. Incorpora tensiones que generen emoción (9nas, 11nas, 13ras), notas de paso diatónicas, melismas vocales (si es voz) y cromatismos para acercarte a tus notas objetivo. ¡Debe sonar como una interpretación icónica e inolvidable!
 
     REGLAS DE ARMONIZACIÓN Y DIRECCIÓN MUSICAL:
     1. Las notas generadas DEBEN empezar dentro de los tiempos de la sección (desde 0.0 hasta ${totalBeats}.0).
@@ -709,7 +707,11 @@ ${lyrics ? `
     8. Cada nota debe especificarse en formato de pitch con octava estándar (ej: C4, Eb4, G3, A#4, D5). En batería usa C2, D2, F#2, A#2, G2, A2, B2, C3 y C#3 para los elementos clave del kit.
     9. Ajusta las velocidades (velocity) de 0.0 a 1.0 para dar un toque humano y expresivo.
     10. DINÁMICAS Y VELOCIDAD (VELOCITY) BAJO DEMANDA: Si el usuario solicita dinámicas específicas en su prompt (por ejemplo: crescendo, decrescendo, pianissimo/suave (0.2-0.4), mezzoforte (0.5-0.7), fortissimo/fuerte (0.8-1.0), acentos o notas fantasma), DEBES programar minuciosamente la propiedad 'velocity' de cada nota a lo largo de la sección para simular esta expresividad física y volumen real. Si no se pide nada de esto en el prompt, usa variaciones sutiles (ej. acentuar sutilmente los tiempos fuertes con velocity 0.8-0.9 y rebajar tiempos débiles o contratiempos a 0.6-0.7).
-    11. RESOLUCIÓN FINAL EN OUTROS (CRÍTICO ABSOLUTO): Si la sección actual es de tipo "Outro" o final (sectionType: "${sectionType}" contiene "outro" o "final"), TODAS las pistas (Bajo, Melodía, Ritmo) DEBEN DETENERSE al llegar al ÚLTIMO acorde de la progresión. En ese acorde final, toca una única nota larga o acorde en bloque sostenido (durationBeats: 8.0) y NINGUNA OTRA NOTA DESPUÉS. Debe haber silencio total tras este acorde para lograr un final genuino y resolutivo de canción.
+    11. RESOLUCIÓN FINAL Y GRAN CIERRE EN OUTROS (CRÍTICO ABSOLUTO): Si la sección actual es de tipo "Outro" o final (sectionType: "${sectionType}" contiene "outro" o "final", insensible a mayúsculas), DEBES GARANTIZAR UN GRAN FINAL ÉPICO QUE REALMENTE SE SIENTA COMO EL CIERRE DE LA CANCIÓN. 
+        - Hacia los últimos compases, prepara la resolución (con crescendos o rallentandos emocionales).
+        - TODAS las pistas (Bajo, Melodía, Ritmo) DEBEN CONVERGER de manera majestuosa en el ÚLTIMO acorde de la progresión.
+        - En el tiempo exacto de ese último acorde, toca una única nota resolutiva larga, fuerte y contundente, o un acorde en bloque majestuoso sostenido (durationBeats: 8.0) con 'velocity' alta (0.9 - 1.0) para coronar la canción.
+        - DESPUÉS DE ESE GOLPE FINAL, ESTÁ ESTRICTAMENTE PROHIBIDO AÑADIR MÁS NOTAS. Debe haber silencio total para dar la sensación inequívoca de que la obra maestra ha concluido.
 
     EJEMPLO DE ESTRUCTURA JSON DE RESPUESTA (Para una sección de 4 acordes / 16 tiempos de duración total):
     {
@@ -780,7 +782,8 @@ Usa esta información para que la pista "${trackName}" juegue de forma complemen
 - Coordina el groove para que el ensamble suene cohesionado y profesional.`;
     }
 
-    const targetPrompt = `Genera un arreglo melódico instrumental para la pista "${trackName}" (Canal MIDI ${midiChannel}) sobre el Verso/Sección "${sectionType}" de la canción "${songTitle}".
+    const targetPrompt = `Genera un arreglo súper realista, musical y creativo para la pista "${trackName}" (Canal MIDI ${midiChannel}) sobre la sección "${sectionType}" de la canción "${songTitle}".
+${songGenre ? `Género Musical de la Canción: ${songGenre} (Aplica todo el vocabulario musical, swing y arreglos de los artistas más famosos de este género).` : ""}
 Tonalidad de Sección: ${sectionKey} (${sectionScale})
 Progresión Armónica:\n${chordsString}
 

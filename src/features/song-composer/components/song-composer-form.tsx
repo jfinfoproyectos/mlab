@@ -7,6 +7,7 @@ import { Sparkles, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import { songInputSchema, SongInput, SongStructure } from '@/features/song-composer/schemas/song-generator.schema';
 
@@ -39,9 +40,7 @@ export function SongComposerForm({
       key: "Automático",
       scale: "Automático",
       tempo: "",
-      structureMode: "Automático",
-      chordsMode: "Automático",
-      repetitionMode: "Automático",
+      targetDurationMinutes: 3.0,
       musicStyle: "Automático",
       autoGenerateRhythm: false,
       rhythmPolyphonic: false,
@@ -51,6 +50,7 @@ export function SongComposerForm({
   });
 
   const generationMode = useWatch({ control, name: "generationMode" });
+  const targetDurationMinutes = useWatch({ control, name: "targetDurationMinutes" }) || 3.0;
   const autoGenerateRhythm = useWatch({ control, name: "autoGenerateRhythm" });
   const rhythmPolyphonic = useWatch({ control, name: "rhythmPolyphonic" });
   const polyphonicVoices = useWatch({ control, name: "polyphonicVoices" }) || [];
@@ -275,49 +275,31 @@ export function SongComposerForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="structureMode" className="text-xs font-bold">Estructura / Secciones</Label>
-              <select
-                id="structureMode"
-                {...register("structureMode")}
-                className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-              >
-                <option value="Automático">🔮 Automático (Decide IA)</option>
-                <option value="3-sections">3 secciones (Intro, Coro, Outro)</option>
-                <option value="4-sections">4 secciones (Intro, Verso, Coro, Outro)</option>
-                <option value="6-sections">6 secciones (Pop Corto / Repeticiones)</option>
-                <option value="8-sections">8 secciones (Pop Completo con Puente)</option>
-              </select>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="targetDurationMinutes" className="text-xs font-bold">
+                  Duración Objetivo
+                </Label>
+                <span className="text-xs text-muted-foreground font-mono font-bold">
+                  ~{targetDurationMinutes.toFixed(1)} min
+                </span>
+              </div>
+              <div className="pt-2 pb-1 px-1">
+                <Slider
+                  id="targetDurationMinutes"
+                  min={1.0}
+                  max={6.0}
+                  step={0.5}
+                  value={[targetDurationMinutes]}
+                  onValueChange={(vals) => setValue("targetDurationMinutes", vals[0])}
+                  className="w-full"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-tight pt-1">
+                La IA estructurará la canción para acercarse a esta duración.
+              </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="chordsMode" className="text-xs font-bold">Acordes por Sec.</Label>
-                <select
-                  id="chordsMode"
-                  {...register("chordsMode")}
-                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  <option value="Automático">🔮 Automático</option>
-                  <option value="2">2 acordes</option>
-                  <option value="4">4 acordes</option>
-                  <option value="6">6 acordes</option>
-                  <option value="8">8 acordes</option>
-                </select>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="repetitionMode" className="text-xs font-bold">Repeticiones</Label>
-                <select
-                  id="repetitionMode"
-                  {...register("repetitionMode")}
-                  className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  <option value="Automático">🔮 Automático</option>
-                  <option value="none">Sin repeticiones</option>
-                  <option value="force-exact">🔗 Clones</option>
-                </select>
-              </div>
-            </div>
           </div>
           )}
           

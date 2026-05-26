@@ -93,6 +93,8 @@ export function generateSectionChordRhythmNotes(
       return;
     }
 
+    const startIndex = notes.length;
+
     if (mode === "basic") {
       chordNotes.forEach((n) => {
         notes.push({
@@ -605,6 +607,19 @@ export function generateSectionChordRhythmNotes(
             velocity: 0.75,
           });
         });
+      }
+    }
+
+    // Adaptar dinámicamente cualquier patrón rítmico a la duración arbitraria que la IA haya generado
+    const endIndex = notes.length;
+    const scaleFactor = currentChordDuration / 4.0;
+    
+    if (mode !== "basic" && Math.abs(scaleFactor - 1.0) > 0.01) {
+      for (let i = startIndex; i < endIndex; i++) {
+        const noteObj = notes[i];
+        const relStart = noteObj.startBeat - baseBeat;
+        noteObj.startBeat = baseBeat + (relStart * scaleFactor);
+        noteObj.durationBeats = noteObj.durationBeats * scaleFactor;
       }
     }
   });

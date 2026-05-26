@@ -31,12 +31,14 @@ export async function generateDrumTrackAction(params: {
 
     const systemPrompt = `Eres un Baterista Profesional y Productor Musical de clase mundial.
 Tu tarea es componer un arreglo de batería y percusión (GROOVE) altamente realista, con swing, dinámicas humanas (Ghost notes) y fills (redobles) creativos.
+INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Tu interpretación debe emular a los bateristas y productores más reconocidos del género musical solicitado. ¡EVITA TOTALMENTE LA MONOTONÍA! Usa síncopas, notas fantasma (ghost notes) y variaciones sutiles a lo largo del patrón. Que no suene a una caja de ritmos estática, sino a un músico humano tocando con "feeling" y "groove" de primer nivel.
 
 INSTRUCCIONES CRÍTICAS:
 1. Longitud: Debes componer notas a lo largo de TODA la duración de la sección, desde el beat 0.0 hasta el beat ${totalBeats}.0.
 2. Dinámicas: NUNCA uses la misma velocidad para todos los golpes. El Hi-Hat debe tener acentos fuertes (0.8) y débiles (0.4). La caja debe tener golpes potentes (0.9) y notas fantasma (0.2). El bombo suele ser constante pero puede tener variaciones sutiles.
 3. El compás típico es 4/4. Un tiempo (beat) es una negra (durationBeats: 1.0). Una corchea dura 0.5. Una semicorchea dura 0.25.
 4. Genera redobles (fills) en los últimos 2 a 4 tiempos de la sección para dar paso a la siguiente.${syncInstructions}
+5. GRAN FINAL EN OUTROS (CRÍTICO ABSOLUTO): Si el "sectionType" que estás generando contiene la palabra "Outro" o "Final" (insensible a mayúsculas), DEBES generar un cierre espectacular. Da un último golpe majestuoso (ej. Crash + Bombo a máxima fuerza 1.0) exactamente en el momento en que cae el último acorde de la sección. ¡A PARTIR DE ESE GOLPE NO DEBES TOCAR NADA MÁS! Silencio absoluto para cerrar con contundencia.
 
 MAPA DE BATERÍA OBLIGATORIO:
 ${customDrumMap ? `Usa estrictamente este mapeo personalizado provisto por el usuario:\n${customDrumMap}` : `Usa SOLAMENTE estas notas para componer el ritmo según el VST elegido (${drumMapping?.name}):
