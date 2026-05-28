@@ -52,14 +52,17 @@ export async function getAiChordSuggestionsAction(params: {
         : `Se está empezando la progresión con el acorde: "${currentChord}".`;
 
     const systemPrompt = `Eres un maestro de la armonía tonal y un productor musical con décadas de experiencia en la construcción de progresiones de acordes. Tu tarea es sugerir acordes que continúen de manera natural y musical una progresión dada.
+INSTRUCCIÓN CRÍTICA DE ESTILO: Si el estilo sugerido corresponde a un artista clásico, contemporáneo o un ARTISTA MODERNO DE CUALQUIER GÉNERO (ej. The Weeknd, Taylor Swift, Rosalía, Bad Bunny, Daft Punk), IDENTIFICA SU ESTILO MUSICAL, sus acordes puente favoritos y su estética armónica, y genera las sugerencias adoptando profundamente su filosofía creativa.
 
 REGLAS PARA SUGERENCIAS PROFESIONALES:
-1. Aplica principios de movimiento tonal: resoluciones naturales (V→I, II→V→I, IV→I), plagales, modales.
-2. Considera la Tonalidad (key) como centro gravitacional, pero incluye al menos 1-2 sugerencias que introduzcan color modal o préstamo de escala paralela.
-3. Cada sugerencia debe sonar plausible, no forzada.
-4. Las sugerencias deben cubrir diferentes opciones: una obvia/segura, una sorprendente/creativa, una emotiva/melancólica, etc.
-5. La razón debe ser técnica pero comprensible para un músico semi-profesional.
-6. Devuelve EXACTAMENTE entre 4 y 6 sugerencias.`;
+1. REGLAS UNIVERSALES DE COHESIÓN Y ESTRUCTURA FORMAL: Evita la deriva tonal excesiva y el "caos estructural". Sugiere acordes que mantengan la cohesión de la idea armónica principal (el "ancla") o que permitan retornar lógicamente a la tónica o al tema principal tras un contraste (ej. A-B-A).
+2. TRANSICIONES GRADUALES: Si la sugerencia introduce un cambio significativo (modulación, puente), utiliza acordes pivote y transiciones graduales para evitar un choque repentino.
+3. Aplica principios de movimiento tonal: resoluciones naturales (V→I, II→V→I, IV→I), plagales, modales.
+4. Considera la Tonalidad (key) como centro gravitacional, pero incluye al menos 1-2 sugerencias que introduzcan color modal o préstamo de escala paralela.
+5. Cada sugerencia debe sonar plausible, no forzada.
+6. Las sugerencias deben cubrir diferentes opciones: una obvia/segura, una sorprendente/creativa, una emotiva/melancólica, etc.
+7. La razón debe ser técnica pero comprensible para un músico semi-profesional.
+8. Devuelve EXACTAMENTE entre 3 y 6 sugerencias.`;
 
     const userPrompt = `Sección: "${sectionType}" | Tonalidad: ${sectionKey} | Estilo: "${style || "general"}".
 
@@ -69,10 +72,10 @@ Sugiere los mejores acordes para continuar esta progresión. Considera la narrat
 
     const result = await generateObject({
       model: provider,
-      schema: chordSuggestionSchema,
+      schema: chordSuggestionSchema ,
       system: systemPrompt,
       prompt: userPrompt,
-      abortSignal: AbortSignal.timeout(30000),
+      abortSignal: AbortSignal.timeout(60000),
       maxRetries: 0,
     });
 
@@ -152,10 +155,10 @@ Genera el análisis armónico y de conducción de voces.`;
 
     const result = await generateObject({
       model: provider,
-      schema: progressionAnalysisSchema,
+      schema: progressionAnalysisSchema ,
       system: systemPrompt,
       prompt: userPrompt,
-      abortSignal: AbortSignal.timeout(30000),
+      abortSignal: AbortSignal.timeout(60000),
       maxRetries: 0,
     });
 

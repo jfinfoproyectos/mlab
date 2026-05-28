@@ -6,9 +6,8 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/comp
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PianoKeyboard } from '@/features/piano-roll/components/piano-keyboard';
-import { ManualChordBuilderDialog } from '@/features/chord-generator/components/manual-chord-builder-dialog';
-import { SongSection, SongTrack } from '@/features/song-composer/schemas/song-generator.schema';
-import { analyzeProgressionAction } from '@/features/chord-generator/actions/chord-suggestions.actions';
+import { ManualChordBuilderDialog, analyzeProgressionAction } from '@/features/chord-generator';
+import { SongSection, SongTrack } from '../schemas/song-generator.schema';
 
 interface SectionChordEditorProps {
   selectedSection: SongSection;

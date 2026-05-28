@@ -6,7 +6,7 @@ import { AiConfigService } from "./ai-config.service";
 
 function sanitizeModelId(provider: string, modelId: string | null | undefined): string {
   if (!modelId || modelId.trim() === "") {
-    if (provider === "google") return "gemini-1.5-flash";
+    if (provider === "google") return "gemini-2.5-flash";
     if (provider === "openai") return "gpt-4o";
     if (provider === "anthropic") return "claude-3-5-sonnet-20240620";
     if (provider === "minimax") return "MiniMax-M2.7";
@@ -94,7 +94,7 @@ export async function getActiveAiProvider() {
   if (googleKey) {
     console.info("Using Google Gemini from environment variable (AI_GATEWAY_API_KEY).");
     const google = createGoogleGenerativeAI({ apiKey: googleKey });
-    return google("gemini-1.5-flash");
+    return google("gemini-2.5-flash");
   }
 
   const openaiKey = process.env.OPENAI_API_KEY;

@@ -2,6 +2,7 @@ import { getSession } from "@/proxy";
 import { ChordGenerator } from "@/features/chord-generator";
 import { redirect } from "next/navigation";
 
+export const dynamic = 'force-dynamic';
 export const metadata = {
   title: "Generador de Acordes IA - MusicLab",
   description: "Crea y analiza progresiones de acordes estructuradas basadas en inteligencia artificial utilizando Vercel AI SDK.",

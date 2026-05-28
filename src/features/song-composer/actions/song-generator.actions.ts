@@ -1,6 +1,6 @@
 "use server";
 
-import { generateText, generateObject } from "ai";
+import { generateObject, generateText } from "ai";
 import { z } from "zod";
 import { getActiveAiProvider } from '@/features/ai-assistant/services/ai-provider.service';
 import { 
@@ -33,20 +33,22 @@ export async function generateSongBlueprintAction(data: SongInput): Promise<Gene
 
     const systemPrompt = `Eres un arreglista y productor musical de clase mundial galardonado.
 Tu tarea es componer la estructura de secciones (el Plano Estructural o "Song Blueprint") para una canción completa basada en la instrucción del usuario.
-INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Diseña la canción para que suene como una obra maestra de los artistas más famosos y reconocidos del género solicitado. Evita por completo la monotonía; tus progresiones armónicas y 'prompts' de sección deben reflejar la riqueza, variedad y los matices únicos de las producciones comerciales de alto nivel.
+INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Diseña la canción para que suene como una obra maestra. Si el usuario sugiere o se inspira en un ARTISTA CLÁSICO O MODERNO (ej. The Weeknd, Taylor Swift, Rosalía, Bad Bunny, Daft Punk, etc), IDENTIFICA INMEDIATAMENTE SU ESTILO MUSICAL, sus progresiones de acordes favoritas, y su vibra estética, y genéralo creativamente adoptando su filosofía. Evita por completo la monotonía; tus progresiones armónicas y 'prompts' de sección deben reflejar la riqueza, variedad y los matices únicos de las producciones comerciales del artista o género solicitado.
 Debes diseñar una estructura fluida, musical y coherente de entre 3 y 8 secciones (ej: Intro, Verso 1, Coro 1, Verso 2, Coro 2, Puente, Coro 3, Outro).
 
 Para cada sección, debes formular:
 1. 'type': El tipo de sección (ej. Intro, Verso 1, Coro 1, Verso 2, Pre-Coro, Puente, Outro).
 2. 'prompt': Una instrucción armónica de color específica, detallada y motivadora (MÁXIMO 15 palabras).
 3. 'key' y 'scale': La tonalidad y escala sugerida de la sección (ej. tonalidad: "C Minor", escala: "Dórico").
-4. 'chordCount': Un número entero de 2 a 8 que indique cuántos acordes componen esta sección según su densidad musical.
+4. 'chordCount': Un número entero que indique cuántos acordes componen esta sección. Usa duraciones generosas (ej. 8, 16, 32 acordes) para secciones largas, para así alcanzar la duración en minutos sugerida por el usuario.
 5. 'reusedFrom': (Opcional) Si esta sección repite EXACTAMENTE la misma progresión armónica de una sección anterior, indica el 'type' de la sección de origen (ej. "Coro 1"). EL VALOR DEBE SER EXACTAMENTE EL TEXTO LITERAL DEL CAMPO 'type' ORIGEN. ¡CERO TEXTO ADICIONAL!
 6. 'variationOf': (Opcional) Si esta sección es una VARIACIÓN armónica de una sección previa, indica el 'type' de origen (ej. "Verso 1"). EL VALOR DEBE SER EXACTAMENTE EL TEXTO LITERAL DEL CAMPO 'type' ORIGEN (ej. Solo "Verso 1", NUNCA "Var de Verso 1" ni añadir letras al campo). El 'prompt' es el lugar donde debes describir la variación (ej. "modulado un tono arriba" o "añadir tensiones").
 7. 'lyrics': (Opcional) Si el usuario proporciona una letra de canción, DEBES extraer y asignar el fragmento exacto de la letra que corresponde a esta sección. Cada palabra de la letra original debe ser asignada a alguna sección, sin omitir nada.
 
-REGLAS DE REUTILIZACIÓN Y COHERENCIA MUSICAL:
-- Para coros o versos repetidos, usa 'reusedFrom' o 'variationOf' para garantizar consistencia musical y coherencia estructural en la composición.
+REGLAS UNIVERSALES DE COHESIÓN Y ESTRUCTURA FORMAL (CRÍTICO):
+- ESTRUCTURAS CÍCLICAS Y DE RETORNO: Para cualquier género musical, utiliza estructuras clásicas como la Forma Rondó (A-B-A-C-A) o Forma Ternaria (A-B-A). El oyente necesita familiaridad; asegúrate de planear el regreso al tema principal ("hook" o Coro 1) después de realizar variaciones o puentes.
+- REGLAS DE REUTILIZACIÓN Y COHERENCIA MUSICAL: Para coros o versos repetidos, usa 'reusedFrom' o 'variationOf' obligatoriamente. ESTO ES VITAL para consolidar el "motivo conductor" o ancla de la canción. No inventes progresiones nuevas para cada sección.
+- Si una sección usa 'reusedFrom', copiará los acordes exactos en el DAW. Si usa 'variationOf', generará acordes basados en la sección de origen.
 - Si una sección usa 'reusedFrom', copiará los acordes exactos en el DAW. Si usa 'variationOf', generará acordes basados en la sección de origen.
 
 EJEMPLO DE RESPUESTA EN FORMATO VÁLIDO:
@@ -142,19 +144,25 @@ REGLAS ESTRICTAS DE CONCISIÓN:
       targetPrompt += `- ESTRUCTURA LIBRE BASADA EN LETRA: Ignora los límites convencionales de cantidad de secciones. Crea EXACTAMENTE la cantidad de secciones que sean necesarias para acomodar de manera natural cada estrofa o párrafo de la letra provista. Si la letra es muy corta (ej. 2 párrafos), crea 2 o 3 secciones. Si es muy larga, crea tantas como sean necesarias.\n`;
     } else if (validated.targetDurationMinutes) {
       let mathHint = "";
-      const bpmNum = parseInt(validated.tempo || "100");
-      if (!isNaN(bpmNum) && bpmNum > 0) {
+      if (validated.tempo && validated.tempo !== "Automático" && !isNaN(parseInt(validated.tempo))) {
+        const bpmNum = parseInt(validated.tempo);
         const totalBeats = Math.round(validated.targetDurationMinutes * bpmNum);
         const totalChords = Math.round(totalBeats / 4);
-        mathHint = `\n      SUGERENCIA DE LONGITUD: Para alcanzar ~${validated.targetDurationMinutes} minutos a ${bpmNum} BPM, necesitas generar APROXIMADAMENTE ${totalChords} acordes EN TOTAL distribuidos a lo largo de toda la canción (sumando el 'chordCount' de todas tus secciones).`;
+        mathHint = `\n      SUGERENCIA CRÍTICA DE LONGITUD: Para alcanzar los ~${validated.targetDurationMinutes} minutos deseados (asumiendo ~${bpmNum} BPM), DEBES generar APROXIMADAMENTE ${totalChords} acordes EN TOTAL, distribuidos a lo largo de TODAS tus secciones.
+      ¡ESTÁ TOTALMENTE PROHIBIDO crear una canción que dure solo 1 minuto si el usuario pidió 3!
+      1. Decide crear suficientes secciones (ej. 4, 6 u 8).
+      2. Asigna un 'chordCount' alto a cada sección (ej. 16, 24, 32 acordes por sección).
+      3. Suma mentalmente el 'chordCount' de todas tus secciones generadas y asegúrate de que el total se acerque a ${totalChords}.`;
+      } else {
+        mathHint = `\n      SUGERENCIA CRÍTICA DE LONGITUD (ATENCIÓN): Como el tempo (BPM) es libre, tú debes calcular cuántos acordes necesitas. Usa esta fórmula: (Tiempos = ${validated.targetDurationMinutes} minutos * EL_TEMPO_QUE_ELIJAS). Luego divide los tiempos entre 4 para obtener los acordes totales.
+      ¡ESTÁ TOTALMENTE PROHIBIDO crear una canción que dure solo 1 minuto si el usuario pidió 3!
+      1. Decide crear suficientes secciones (ej. 4, 6 u 8).
+      2. Asigna un 'chordCount' alto a cada sección (ej. 16, 24, 32 acordes por sección).
+      3. Suma mentalmente el 'chordCount' de todas tus secciones y asegúrate de generar la cantidad necesaria para alcanzar los ${validated.targetDurationMinutes} minutos.`;
       }
 
-      targetPrompt += `- ESTRUCTURA Y DURACIÓN APROXIMADA (LIBERTAD CREATIVA): El usuario sugiere una duración de aproximadamente ${validated.targetDurationMinutes} minutos. ${mathHint}
-      Actúa como un músico de sesión y compositor de clase mundial. NO uses fórmulas matemáticas rígidas para cortarte la inspiración, pero USA LA SUGERENCIA DE LONGITUD COMO GUÍA para saber cuántas secciones y cuántos acordes ('chordCount') necesitas crear para que la canción no quede demasiado corta.
-      1. Decide cuántas secciones tendrá la canción (ej. 4, 6 u 8).
-      2. Qué tipo de secciones crear.
-      3. Asigna 'chordCount' generosos a cada sección (ej. 8, 16, 24) para que la suma total se acerque a la sugerencia.
-      Prioriza el arte y el flujo emocional, pero asegúrate de generar suficiente material musical para llenar el tiempo requerido.\n`;
+      targetPrompt += `- ESTRUCTURA Y DURACIÓN APROXIMADA (OBLIGATORIO): El usuario ha exigido una duración de aproximadamente ${validated.targetDurationMinutes} minutos. ${mathHint}
+      Prioriza el arte, pero la matemática de la duración es vital para la satisfacción del usuario.\n`;
     } else {
       targetPrompt += `- Estructura sugerida: Decide de manera inteligente y libre la cantidad de secciones, actuando como un gran compositor de este género.\n`;
     }
@@ -175,7 +183,7 @@ REGLAS ESTRICTAS DE CONCISIÓN:
     try {
       const result = await generateObject({
         model: provider,
-        schema: songBlueprintSchema,
+        schema: songBlueprintSchema ,
         system: systemPrompt,
         prompt: targetPrompt,
         abortSignal: AbortSignal.timeout(60000),
@@ -188,9 +196,9 @@ REGLAS ESTRICTAS DE CONCISIÓN:
       if (validated.generationMode === "lyrics" && validated.lyrics) {
         finalObject.sections = finalObject.sections.map(section => {
           if (section.lyrics && section.lyrics.trim().length > 0) {
-            const estimatedSyllables = Math.max(16, section.lyrics.split(/\s+/).length * 1.5);
-            const recommendedChords = Math.ceil(estimatedSyllables / 4); // target ~4 beats per chord
-            section.chordCount = Math.min(16, Math.max(section.chordCount || 4, recommendedChords));
+            const estimatedSyllables = Math.max(16, (section.lyrics.match(/[aeiouáéíóúüAEIOUÁÉÍÓÚÜyY]+/g) || []).length);
+            const recommendedChords = Math.ceil(estimatedSyllables / 3); // target ~3 beats per chord for breathing room
+            section.chordCount = Math.min(24, Math.max(section.chordCount || 4, recommendedChords));
           }
           return section;
         });
@@ -277,9 +285,9 @@ Completa entre 3 y 8 secciones lógicas.`;
       if (validated.generationMode === "lyrics" && validated.lyrics) {
         parsed.sections = parsed.sections.map((section: any) => {
           if (section.lyrics && section.lyrics.trim().length > 0) {
-            const estimatedSyllables = Math.max(16, section.lyrics.split(/\s+/).length * 1.5);
-            const recommendedChords = Math.ceil(estimatedSyllables / 4);
-            section.chordCount = Math.min(16, Math.max(section.chordCount || 4, recommendedChords));
+            const estimatedSyllables = Math.max(16, (section.lyrics.match(/[aeiouáéíóúüAEIOUÁÉÍÓÚÜyY]+/g) || []).length);
+            const recommendedChords = Math.ceil(estimatedSyllables / 3);
+            section.chordCount = Math.min(24, Math.max(section.chordCount || 4, recommendedChords));
           }
           return section;
         });
@@ -486,7 +494,8 @@ export async function generateSectionTrackAction(params: {
   ornamentalTypes?: string[];
   midiReferencePattern?: string;
   lyrics?: string;
-}): Promise<{ success: boolean; data?: SongSectionTrack; error?: string }> {
+  motifContext?: string;
+}): Promise<{ success: boolean; data?: SongSectionTrack; motifCreated?: string; error?: string }> {
   const { 
     songTitle, 
     songGenre,
@@ -504,7 +513,8 @@ export async function generateSectionTrackAction(params: {
     nextChordsList,
     progressionRhythmNotes,
     midiReferencePattern,
-    lyrics
+    lyrics,
+    motifContext
   } = params;
 
   // Habilitar teoría musical avanzada y ornamentos armónicos para todas las pistas por defecto (excepto batería)
@@ -534,9 +544,6 @@ export async function generateSectionTrackAction(params: {
       const duration = c.duration || 4;
       const end = start + duration;
       currentStart = end;
-      if (lyrics) {
-        return `- Acorde ${idx + 1} (${c.chord}): Rango de tiempo [${start.toFixed(1)} a ${(end - 0.1).toFixed(1)}]. Debes asignar notas de las sílabas de la letra aquí, ajustando el ritmo para que encaje armónicamente.`;
-      }
       return `- Acorde ${idx + 1} (${c.chord}): Genera OBLIGATORIAMENTE entre 2 y 5 notas con 'startBeat' entre los tiempos ${start.toFixed(1)} y ${(end - 0.1).toFixed(1)} (que es el intervalo en el que suena este acorde).`;
     }).join("\n");
 
@@ -637,8 +644,8 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
 
     ⚠️ DIRECTRICES ARMÓNICAS OBLIGATORIAS SEGÚN EL ROL DE LA PISTA:
     El comportamiento armónico DEBE cambiar drásticamente según qué instrumento estés tocando, adaptándose de forma súper especial y creativa al género musical${songGenre ? ` (${songGenre})` : ""}:
-    1. Si eres BAJO (Bassline): Toca fundamentales y quintas, pero añade síncopas, notas de paso, slides o articulaciones propias del bajista más legendario del género para darle un groove contagioso y realista.
-    2. Si eres RITMO o ACORDES (Piano, Pads, Guitarra Rítmica, Sintetizadores): Mantén una adherencia estricta a las notas del acorde (pianoNotes) en un 80%, pero usa voicings complejos, inversiones, ritmos sincopados y fraseos característicos de las mejores producciones de este estilo musical.
+    1. Si eres BAJO (Bassline): Toca fundamentales y quintas, pero AÑADE SÍNCOPAS ("ghost notes", anticipaciones o silencios en el primer tiempo). ¡NO caigas siempre pesadamente en el tiempo 0.0 de cada compás! Crea un groove contagioso y humano.
+    2. Si eres RITMO o ACORDES (Piano, Pads, Guitarra Rítmica, Sintetizadores): Mantén una adherencia estricta a las notas del acorde, pero usa voicings complejos, inversiones, ritmos sincopados y fraseos fuera del tiempo fuerte. Evita la cuantización perfecta.
     3. Si eres MELODÍA, VOZ, LEAD, SOLO o CUALQUIER INSTRUMENTO SOLISTA:
        >>> ¡CREA MELODÍAS MÁGICAS, INSPIRADORAS Y PROFUNDAMENTE HUMANAS! <<<
        Tus notas NO deben ser un simple arpegio predecible. ESTÁ ESTRICTAMENTE PROHIBIDO limitarte solo a las notas del acorde. DEBES usar la escala completa (${sectionScale} de ${sectionKey}) para tejer una historia musical. Incorpora tensiones que generen emoción (9nas, 11nas, 13ras), notas de paso diatónicas, melismas vocales (si es voz) y cromatismos para acercarte a tus notas objetivo. ¡Debe sonar como una interpretación icónica e inolvidable!
@@ -652,30 +659,9 @@ TU TAREA PRINCIPAL AHORA ES "MAPEAR" LA ARMONÍA AL RITMO MIDI:
        >>> REGLA DE ORO DE MELODÍAS REALISTAS Y ESTRICTAMENTE ADAPTADAS <<<
        Se requiere que compongas melodías MÁGICAS, LÍRICAS y EXTREMADAMENTE REALISTAS, pero que se ADAPTEN ESTRICTAMENTE a las progresiones de acordes base.
        - ADAPTACIÓN ARMÓNICA ESTRICTA: A diferencia de otras reglas, aquí DEBES anclar los tiempos fuertes (0.0, 1.0, 2.0, 3.0) y los inicios de compás a las notas del acorde activo (pianoNotes). Usa tensiones (9nas, 11nas, 13ras) y notas de paso diatónicas o cromáticas EXCLUSIVAMENTE en los tiempos débiles o como resoluciones, asegurándote de no chocar con la armonía base.
-       
-       ${lyrics ? `=== REGLA DE DISTRIBUCIÓN DE LETRA (KARAOKE) ===\nTu tarea principal es asignar CADA SÍLABA de la letra a una nota musical. CRÍTICO: La sección dura exactamente ${totalBeats} tiempos. DEBES ESPACIAR Y DISTRIBUIR la letra a lo largo de TODOS estos ${totalBeats} tiempos de principio a fin. NO cantes todo rápido al principio. Usa notas muy largas para finales de frase (durationBeats de 2.0, 3.0, 4.0), pausas (silencios) de varios tiempos entre líneas de la letra, y estira las vocales para que la interpretación llene todo el espacio hasta el tiempo ${totalBeats - 2}.0. ¡ESTÁ ESTRICTAMENTE PROHIBIDO dejar grandes espacios de silencio al final de la sección!` : ""}
-       
-       - MELISMA Y EXPRESIVIDAD VOCAL: ¡NO generes "simples noticas" cortas o robóticas (staccato) como una metralleta! Compón saltos melódicos hermosos (intervalos de 3ras, 4tas, 5tas) y duraciones variadas y MUY LARGAS (ej: 0.5, 1.0, 2.0, 3.0, 4.0) para las notas finales de cada frase.
-       - FORMA MELÓDICA REALISTA: Crea contornos expresivos y humanos. Una melodía vocal o solista necesita RESPIRAR. Añade silencios lógicos (pausas de respiración) entre frases. No toques de corrido en semicorcheas sin parar. 
-       - SÍNCOPAS: Evita empezar siempre en 0.0. Juega con ataques anacrúsicos (antes del tiempo 1) o retrasos (0.25, 0.5) para darle un groove humano y realista.
-${lyrics ? `
-    === 🚨 ALERTA CRÍTICA: MELODÍA VOCAL PARA KARAOKE ===
-    Letra asignada a esta sección:
-    """
-    ${lyrics}
-    """
-    1. MELISMA Y EXPRESIVIDAD VOCAL: ¡NO generes "simples noticas" cortas o robóticas (staccato) como una metralleta! Compón saltos melódicos hermosos (intervalos de 3ras, 4tas, 5tas) y duraciones variadas y largas (blancas, redondas, negras ligadas) para que suene como una interpretación vocal humana virtuosa y real. Los cantantes reales a menudo estiran una vocal o sílaba sobre múltiples notas consecutivas (melisma). Si deseas hacer un melisma, simplemente repite la misma sílaba en 2 o 3 notas seguidas (ej. "Co-", "Co-", "ra-", "zón").
-    2. SINCRONIZACIÓN Y GROOVE (CRÍTICO): Rompe la monotonía rítmica. NO empieces todas las notas en tiempos enteros (0.0, 1.0, 2.0). ESTÁ ESTRICTAMENTE PROHIBIDO que todas las notas duren lo mismo. Debes alternar duraciones rápidas (0.25, 0.5) para sílabas cortas, con duraciones largas (1.5, 2.0, 3.0) para el final de las frases. Inicia frases en contratiempos (ej. 0.25, 0.75, 1.5) para darle 'flow' y síncopa.
-    3. RESPIRACIÓN OBLIGATORIA Y MONOFONÍA ESTRICTA: Es físicamente imposible cantar dos notas a la vez. NUNCA superpongas notas (el startBeat de una nota debe ser mayor o igual al final de la anterior). Además, tienes que insertar silencios forzosos de al menos 1 o 2 tiempos (blancas o redondas de silencio) al final de cada frase, verso o coma en la letra para que el cantante respire. ¡NO generes un muro continuo de notas!
-    4. MAPEADO JSON DE SÍLABAS Y IDs (OBLIGATORIO): Cada nota que compongas DEBE tener un campo "id" (ej. "note-1", "note-2") y un campo "syllable" que contenga la sílaba exacta que le corresponde a esa nota. Ejemplo: "syllable": "Cuan-", "syllable": "do", "syllable": "ca-", "syllable": "e". Las pausas de respiración no llevan nota. RESPETA LAS PALABRAS EXACTAS DE LA LETRA, no inventes ni omitas palabras. El orden cronológico (startBeat) debe coincidir perfectamente con el orden de la letra de principio a fin.
-    5. EJEMPLO DE MAPEADO PARA LA LETRA "Hola mundo":
-       [
-         {"id": "n1", "syllable": "Ho-", "note": "C5", "startBeat": 0.5, "durationBeats": 0.5},
-         {"id": "n2", "syllable": "la", "note": "D5", "startBeat": 1.0, "durationBeats": 1.0},
-         {"id": "n3", "syllable": "mun-", "note": "E5", "startBeat": 2.5, "durationBeats": 0.5},
-         {"id": "n4", "syllable": "do", "note": "C5", "startBeat": 3.0, "durationBeats": 2.0}
-       ]
-` : `       - AL SER INSTRUMENTAL: Mantén un fraseo como si un cantante la estuviera interpretando mentalmente.`}
+       - EXIGENCIA CRÍTICA DE HUMANIZACIÓN RÍTMICA (SÍNCOPAS Y ANACRUSAS): ¡ESTÁ ESTRICTAMENTE PROHIBIDO empezar todas las frases musicales en el tiempo fuerte (0.0)! Al menos el 40% de tus frases deben iniciar con ANACRUSA (pickup notes iniciando en tiempos débiles como 0.5, 0.75, 1.25, 3.5, 3.75) o con RETRASOS (empezar después del tiempo fuerte). Rompe la cuadrícula y suena como un humano real tocando con swing y feeling.
+       - FORMA MELÓDICA REALISTA: Crea contornos expresivos y humanos. Una melodía vocal o solista necesita RESPIRAR. Añade silencios lógicos (pausas de respiración) entre frases.
+       - AL SER INSTRUMENTAL: Mantén un fraseo como si un cantante la estuviera interpretando mentalmente.
 
     6. REGLAS GENERALES PARA PISTAS MELÓDICAS O ARMÓNICAS:
        - VELOCITY Y DINÁMICA: Ajusta la velocidad entre 0.4 y 0.9. Acentos en los tiempos fuertes, más suave en notas de paso.
@@ -716,14 +702,7 @@ ${lyrics ? `
     EJEMPLO DE ESTRUCTURA JSON DE RESPUESTA (Para una sección de 4 acordes / 16 tiempos de duración total):
     {
       "notes": [
-${lyrics ? `        { "id": "note-1", "syllable": "Sien-", "note": "C4", "startBeat": 0.0, "durationBeats": 0.5, "velocity": 0.9 },
-        { "id": "note-2", "syllable": "to el", "note": "E4", "startBeat": 0.5, "durationBeats": 0.5, "velocity": 0.8 },
-        { "id": "note-3", "syllable": "e-", "note": "G4", "startBeat": 1.0, "durationBeats": 0.5, "velocity": 0.85 },
-        { "id": "note-4", "syllable": "co en", "note": "F4", "startBeat": 1.5, "durationBeats": 0.5, "velocity": 0.9 },
-        { "id": "note-5", "syllable": "la ha-", "note": "A4", "startBeat": 2.0, "durationBeats": 0.5, "velocity": 0.8 },
-        { "id": "note-6", "syllable": "bi-", "note": "C5", "startBeat": 2.5, "durationBeats": 0.5, "velocity": 0.85 },
-        { "id": "note-7", "syllable": "ta-", "note": "G4", "startBeat": 3.0, "durationBeats": 0.5, "velocity": 0.9 },
-        { "id": "note-8", "syllable": "ción...", "note": "B4", "startBeat": 3.5, "durationBeats": 1.5, "velocity": 0.8 }` : `        { "note": "C4", "startBeat": 0.0, "durationBeats": 1.0, "velocity": 0.9 },
+        { "note": "C4", "startBeat": 0.0, "durationBeats": 1.0, "velocity": 0.9 },
         { "note": "E4", "startBeat": 1.0, "durationBeats": 1.0, "velocity": 0.8 },
         { "note": "G4", "startBeat": 2.0, "durationBeats": 1.5, "velocity": 0.85 },
         
@@ -737,7 +716,7 @@ ${lyrics ? `        { "id": "note-1", "syllable": "Sien-", "note": "C4", "startB
         
         { "note": "C5", "startBeat": 12.0, "durationBeats": 2.0, "velocity": 0.9 },
         { "note": "G4", "startBeat": 14.0, "durationBeats": 1.0, "velocity": 0.8 },
-        { "note": "C4", "startBeat": 15.0, "durationBeats": 1.0, "velocity": 0.7 }`}
+        { "note": "C4", "startBeat": 15.0, "durationBeats": 1.0, "velocity": 0.7 }
       ]
     }`;
 
@@ -782,6 +761,13 @@ Usa esta información para que la pista "${trackName}" juegue de forma complemen
 - Coordina el groove para que el ensamble suene cohesionado y profesional.`;
     }
 
+    let motifContextInstructions = "";
+    if (motifContext) {
+      motifContextInstructions = `\n\n--- CONTEXTO MOTÍVICO DE LA CANCIÓN ---
+${motifContext}
+(CRÍTICO: Usa este contexto para heredar y variar los patrones rítmicos o melódicos de las secciones anteriores. Si eres un Bajo, mantén la cohesión del groove; si eres un Pad/Teclado, mantén la densidad armónica).`;
+    }
+
     const targetPrompt = `Genera un arreglo súper realista, musical y creativo para la pista "${trackName}" (Canal MIDI ${midiChannel}) sobre la sección "${sectionType}" de la canción "${songTitle}".
 ${songGenre ? `Género Musical de la Canción: ${songGenre} (Aplica todo el vocabulario musical, swing y arreglos de los artistas más famosos de este género).` : ""}
 Tonalidad de Sección: ${sectionKey} (${sectionScale})
@@ -791,28 +777,32 @@ DISTRIBUCIÓN DE NOTAS PARA ESTA GENERACIÓN (OBLIGATORIO):
 Debes generar notas a lo largo de toda la sección. Genera notas específicas para cada uno de los siguientes intervalos de acordes:
 ${chordCoverageInstructions}
 
-Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Instrumento: ${trackName}${transitionInstructions}${rhythmicContextInstructions}${ornamentalTheoryBlock}`;
+Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Instrumento: ${trackName}${transitionInstructions}${rhythmicContextInstructions}${motifContextInstructions}${ornamentalTheoryBlock}`;
 
     const generatedTrackSchema = z.object({
-      id: z.string().optional().describe("Identificador único de la nota para karaoke"),
-      syllable: z.string().optional().describe("Sílaba de la letra cantada en esta nota (karaoke)"),
-      note: z.string().describe("Nota musical con octava (ej: C4, Eb5)"),
-      startBeat: z.number().describe(`Tiempo de inicio en negras relativo a la sección (desde 0.0 hasta ${totalBeats}.0). Debes distribuir las notas a lo largo de todo este rango para cubrir la sección completa. A menos que el prompt del usuario indique explícitamente limitar la melodía en su prompt (ej: "toca solo al inicio"), la música debe durar y distribuirse por toda la progresión entera de principio a fin.`),
-      durationBeats: z.number().describe("Duración en negras (ej: 0.25, 0.5, 1.0, 2.0)"),
-      velocity: z.number().describe("EXPRESIVIDAD Y FUERZA (0.0 a 1.0). ¡CRÍTICO! NO uses valores planos o estáticos (ej. no pongas todo en 0.8). Escribe notas fantasma suaves (0.3 - 0.4), notas medias (0.6) y acentos fuertes en los tiempos fuertes o finales de frase (0.9 - 1.0). Crea crescendos y disminuendos orgánicos para darle respiración e impacto emocional a la interpretación."),
-      sustain: z.boolean().optional().describe("Si es true, se aplicará el efecto pedal sustain MIDI (CC 64) en esta nota, ideal para notas mágicas que deban resonar"),
+      motifDescription: z.string().describe("Breve descripción del motivo musical o ritmo de acompañamiento empleado aquí, para pasarlo a la siguiente sección y mantener coherencia entre secciones sucesivas."),
+      notes: z.array(z.object({
+        id: z.string().optional().describe("Identificador único de la nota para karaoke"),
+        syllable: z.string().optional().describe("Sílaba de la letra cantada en esta nota (karaoke)"),
+        note: z.string().describe("Nota musical con octava (ej: C4, Eb5)"),
+        startBeat: z.number().describe(`Tiempo de inicio en negras relativo a la sección (desde 0.0 hasta ${totalBeats}.0). Debes distribuir las notas a lo largo de todo este rango para cubrir la sección completa. A menos que el prompt del usuario indique explícitamente limitar la melodía en su prompt (ej: "toca solo al inicio"), la música debe durar y distribuirse por toda la progresión entera de principio a fin.`),
+        durationBeats: z.number().describe("Duración en negras (ej: 0.25, 0.5, 1.0, 2.0)"),
+        velocity: z.number().describe("EXPRESIVIDAD Y FUERZA (0.0 a 1.0). ¡CRÍTICO! NO uses valores planos o estáticos (ej. no pongas todo en 0.8). Escribe notas fantasma suaves (0.3 - 0.4), notas medias (0.6) y acentos fuertes en los tiempos fuertes o finales de frase (0.9 - 1.0). Crea crescendos y disminuendos orgánicos para darle respiración e impacto emocional a la interpretación."),
+        sustain: z.boolean().optional().describe("Si es true, se aplicará el efecto pedal sustain MIDI (CC 64) en esta nota, ideal para notas mágicas que deban resonar"),
+      }))
     });
 
     const result = await generateObject({
       model: provider,
-      output: 'array',
-      schema: generatedTrackSchema,
+      schema: generatedTrackSchema ,
       system: systemPrompt,
       prompt: targetPrompt,
+      abortSignal: AbortSignal.timeout(60000),
+      maxRetries: 1,
     });
 
-    if (Array.isArray(result.object)) {
-      const generatedNotes = result.object.map((n: any) => ({
+    if (result.object && Array.isArray(result.object.notes)) {
+      const generatedNotes = result.object.notes.map((n: any) => ({
         id: n.id ? String(n.id) : undefined,
         syllable: n.syllable ? String(n.syllable) : undefined,
         note: String(n.note),
@@ -826,6 +816,7 @@ Directrices del Arreglo:\n- Prompt del Usuario: "${userPrompt}"\n- Papel del Ins
 
       return {
         success: true,
+        motifCreated: result.object.motifDescription,
         data: {
           id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           name: trackName,
@@ -929,7 +920,7 @@ export async function refineSongWithAiAction(
 
     const result = await generateObject({
       model: provider,
-      schema: responseSchema,
+      schema: responseSchema ,
       system: systemPrompt,
       prompt: userPrompt,
     });
@@ -980,5 +971,43 @@ export async function refineSongWithAiAction(
       success: false,
       error: error.message || "Failed to refine song via AI.",
     };
+  }
+}
+
+/**
+ * Action: Enhance the user's prompt or lyrics using AI
+ */
+export async function enhanceTextAction(text: string, type: 'prompt' | 'lyrics'): Promise<{ success: boolean; data?: string; error?: string }> {
+  if (!text || text.trim() === "") return { success: false, error: "El texto está vacío." };
+  
+  try {
+    const provider = await getActiveAiProvider();
+    
+    let systemPrompt = "";
+    let userPrompt = "";
+
+    if (type === 'prompt') {
+      systemPrompt = `Eres un experto productor musical. Tu tarea es mejorar un prompt musical o concepto corto escrito por un usuario, haciéndolo más descriptivo, profesional y evocativo, sin cambiar su esencia original. Añade adjetivos ricos, referencias de instrumentación o atmósfera si aplica. Mantén la longitud bajo 20 o 25 palabras. DEVUELVE ÚNICAMENTE EL TEXTO MEJORADO, sin comillas ni introducciones.`;
+      userPrompt = `Mejora este prompt: "${text}"`;
+    } else {
+      systemPrompt = `Eres un letrista profesional galardonado. Tu tarea es mejorar la letra de una canción escrita por un usuario. Corrige ortografía, métrica básica y enriquece el vocabulario poético y las rimas si es posible, sin alterar drásticamente el significado original. Asegúrate de estructurarla claramente con etiquetas como [Verso], [Coro], etc. DEVUELVE ÚNICAMENTE LA LETRA MEJORADA, sin comillas ni introducciones.`;
+      userPrompt = `Mejora esta letra:\n\n${text}`;
+    }
+
+    const result = await generateText({
+      model: provider,
+      system: systemPrompt,
+      prompt: userPrompt,
+      abortSignal: AbortSignal.timeout(30000),
+      maxRetries: 1,
+    });
+
+    if (result.text) {
+      return { success: true, data: result.text.trim().replace(/^["']|["']$/g, '') };
+    }
+    return { success: false, error: "La IA no devolvió respuesta." };
+  } catch (error: any) {
+    console.error("Error enhancing text:", error);
+    return { success: false, error: error.message || "Error al mejorar el texto." };
   }
 }

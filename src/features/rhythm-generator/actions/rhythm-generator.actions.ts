@@ -25,6 +25,7 @@ export async function generateRhythmPatternAction(prompt: string): Promise<Gener
     const provider = await getActiveAiProvider();
 
     const systemPrompt = `Eres un COMPOSITOR, PERCUSIONISTA y ARREGLISTA LEGENDARIO, al nivel de los más grandes productores y maestros históricos del género solicitado. Tu objetivo absoluto es producir bases rítmicas ULTRA-REALISTAS y de CALIDAD PREMIUM que parezcan tocadas en vivo por músicos expertos de sesión.
+INSTRUCCIÓN CRÍTICA DE ESTILO: Si el usuario menciona a un artista clásico, contemporáneo o un ARTISTA MODERNO DE CUALQUIER GÉNERO (ej. The Weeknd, Taylor Swift, Rosalía, Bad Bunny, Daft Punk), IDENTIFICA SU ESTILO MUSICAL, su "groove" característico y su firma rítmica, y genera los ritmos adoptando profundamente su filosofía creativa.
 Tu tarea es programar un patrón rítmico profesional y con groove en una cuadrícula de 5 filas y 16 pasos (compás de 4/4 dividido en semicorcheas, de paso 0 a 15).
 Las 5 filas representan los siguientes registros musicales (de abajo hacia arriba, índice 0 a 4):
 - Fila 0 (Bajo / Grave): Línea de bajo y acentos rítmicos graves.
@@ -36,8 +37,10 @@ Las 5 filas representan los siguientes registros musicales (de abajo hacia arrib
 Debes devolver un objeto JSON con:
 1. 'name': Un nombre creativo y descriptivo para el patrón.
 2. 'steps': Una matriz de 5 filas, donde cada fila tiene EXACTAMENTE 16 valores booleanos (true para nota activa, false para silencio).
-
 REGLAS DE GROOVE PROFESIONAL:
+- MANTENER UN ANCLA (Elemento Constante): Para mantener la cohesión rítmica (el "groove"), no cambies todos los instrumentos a la vez. Si varías la Fila 4 (Agudos), mantén la Fila 0 (Bajo/Bombo) constante como "ancla", independientemente del género. Esto evita la fragmentación del ritmo.
+- EXCELENCIA EN FINALES (OUTRO/CODA): Si el usuario indica que esta sección es un "Outro", "Coda" o "Final", OBLIGATORIAMENTE el patrón no puede terminar abruptamente a máxima energía. Debes GARANTIZAR UN FINAL ESPECTACULAR: diseña un decrescendo rítmico, espacia las notas al final del patrón (ej. pasos 12 a 15) o remata con un golpe fuerte y luego absoluto silencio musical.
+- TRANSICIONES GRADUALES: Si estás generando una variación o un final, usa redobles o alteraciones rítmicas suaves al final de los compases para anunciar el cambio, en lugar de cambiar de ritmo abruptamente.
 - Si el usuario pide un género como 'Reggaeton' o 'Dembow': La Fila 0 (Bajo) debe tener golpes sincopados clásicos del Dembow (ej: pasos 0, 3, 8, 11) y la Fila 4 (Agudo) debe complementar con contratiempos.
 - Si el usuario pide 'Funk': Debe ser un patrón sincopado muy activo, con notas en la Fila 0 (Bajo) y adornos rápidos en la Fila 4 (Agudo).
 - Si el usuario pide 'House' o 'EDM': Fila 0 debe ser golpes constantes 4-on-the-floor (pasos 0, 4, 8, 12) y las otras filas rellenar rítmicamente.
@@ -50,10 +53,10 @@ REGLAS DE GROOVE PROFESIONAL:
     try {
       const result = await generateObject({
         model: provider,
-        schema: rhythmPatternSchema,
+        schema: rhythmPatternSchema ,
         system: systemPrompt,
         prompt: userPrompt,
-        abortSignal: AbortSignal.timeout(45000),
+        abortSignal: AbortSignal.timeout(60000),
         maxRetries: 0
       });
 
@@ -125,7 +128,7 @@ export async function generatePolyphonicRhythmAction(params: {
   sectionType: string;
   sectionKey: string;
   sectionScale: string;
-  chordsList: Array<{ chord: string; pianoNotes: string[]; role: string }>;
+  chordsList: Array<{ chord: string; pianoNotes: string[]; role: string; duration?: number }>;
   selectedVoices: PolyphonicVoiceRole[];
   rhythmicDensity: "sparse" | "medium" | "dense";
   tempo?: number;
@@ -146,12 +149,15 @@ export async function generatePolyphonicRhythmAction(params: {
     return { success: false, error: "Debes seleccionar al menos una voz." };
   }
 
-  const totalBeats = chordsList.length * 4;
+  const totalBeats = chordsList.reduce((sum, c) => sum + (c.duration || 4), 0);
 
+  let currentStart = 0;
   const chordsString = chordsList
     .map((c, idx) => {
-      const start = idx * 4;
-      const end = start + 4;
+      const dur = c.duration || 4;
+      const start = currentStart;
+      const end = start + dur;
+      currentStart = end;
       return `  Acorde ${idx + 1}: ${c.chord} | Notas: ${c.pianoNotes.join(", ")} | Función: ${c.role} | Tiempos: ${start.toFixed(1)}–${(end - 0.01).toFixed(2)}`;
     })
     .join("\n");
@@ -175,7 +181,10 @@ export async function generatePolyphonicRhythmAction(params: {
 
   const systemPrompt = `Eres un COMPOSITOR MAESTRO, ARREGLISTA LEGENDARIO y productor de talla mundial, inspirado por los más grandes genios de la historia de la música en el género solicitado. Tu objetivo inquebrantable es componer partituras POLIFÓNICAS ULTRA-REALISTAS, profundamente emotivas y de calidad suprema comercial. Debes crear múltiples voces musicales independientes que respiren vida, groove y que se complementen armónicamente con maestría insuperable.
 REGLAS ABSOLUTAS DE POLIFONÍA PROFESIONAL:
-1. INDEPENDENCIA DE VOCES: Cada voz debe tener un ritmo y movimiento melódico independiente. Nunca toques todas las voces en el mismo beat exacto.
+1. MANTENER UN ANCLA (Ostinato/Groove Constante): En cualquier género, define un elemento rítmico o armónico (usualmente el Bajo o el Pad) que se mantenga constante como ancla a lo largo de las variaciones. Si la melodía se vuelve loca, el bajo debe mantener el ritmo reconocible para no perder la cohesión estructural.
+2. PREGUNTA Y RESPUESTA (Desarrollo Motívico): Las voces deben "hablar" entre sí. Si la melodía hace una frase activa, el contrapunto debe responder cuando la melodía descanse. No generes frases musicales aisladas; crea un diálogo musical coherente.
+3. TRANSICIONES GRADUALES: Evita saltos bruscos; usa alteraciones rítmicas o cambios de dinámica (crescendos) para entrar o salir de secciones.
+4. INDEPENDENCIA DE VOCES: Cada voz debe tener un ritmo y movimiento melódico independiente. Nunca toques todas las voces en el mismo beat exacto.
 2. CONTRAPUNTO: Aplica movimiento contrario entre voces adyacentes cuando sea posible.
 3. NO COLISIONES: Asegúrate de que dos voces no toquen la misma nota en el mismo octava al mismo tiempo.
 4. JERARQUÍA DINÁMICA: Bajo (velocity 0.8-1.0), Melodía (0.7-0.9), Contrapunto/Pad (0.4-0.7).
@@ -190,7 +199,7 @@ INFORMACIÓN MUSICAL:
 - Tempo: ${tempo} BPM
 - Total de beats: ${totalBeats}
 
-PROGRESIÓN DE ACORDES (cada acorde dura exactamente 4 beats):
+PROGRESIÓN DE ACORDES (con sus duraciones exactas en tiempos/beats):
 ${chordsString}
 
 DENSIDAD RÍTMICA REQUERIDA: ${densityInstructions[rhythmicDensity]}
@@ -209,7 +218,7 @@ El resultado debe sonar como una partitura real de un músico profesional. Devue
 
     const result = await generateObject({
         model: provider,
-        schema: polyphonicResponseSchema,
+        schema: polyphonicResponseSchema ,
         system: systemPrompt,
         prompt: userPrompt,
         abortSignal: AbortSignal.timeout(60000),

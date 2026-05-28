@@ -3,13 +3,14 @@
 import React from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Sparkles, Upload } from "lucide-react";
+import { Sparkles, Upload, Wand2, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import { songInputSchema, SongInput, SongStructure } from '@/features/song-composer/schemas/song-generator.schema';
+import { enhanceTextAction } from '@/features/song-composer/actions/song-generator.actions';
 
 interface SongComposerFormProps {
   loading: boolean;
@@ -54,6 +55,36 @@ export function SongComposerForm({
   const autoGenerateRhythm = useWatch({ control, name: "autoGenerateRhythm" });
   const rhythmPolyphonic = useWatch({ control, name: "rhythmPolyphonic" });
   const polyphonicVoices = useWatch({ control, name: "polyphonicVoices" }) || [];
+
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = React.useState(false);
+  const [isEnhancingLyrics, setIsEnhancingLyrics] = React.useState(false);
+
+  const handleEnhance = async (type: 'prompt' | 'lyrics') => {
+    // We can use getValues() if we imported it from useForm, or just use control._formValues
+    const text = control._formValues[type];
+    if (!text || text.trim() === "") {
+      toast.error("Escribe algo primero para poder mejorarlo.");
+      return;
+    }
+    
+    if (type === 'prompt') setIsEnhancingPrompt(true);
+    else setIsEnhancingLyrics(true);
+
+    try {
+      const res = await enhanceTextAction(text, type);
+      if (res.success && res.data) {
+        setValue(type, res.data, { shouldValidate: true, shouldDirty: true });
+        toast.success(type === 'prompt' ? "¡Prompt mejorado!" : "¡Letra mejorada y estructurada!");
+      } else {
+        toast.error(res.error || "Error al mejorar el texto");
+      }
+    } catch (e) {
+      toast.error("Error al conectar con la IA");
+    } finally {
+      if (type === 'prompt') setIsEnhancingPrompt(false);
+      else setIsEnhancingLyrics(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -101,7 +132,20 @@ export function SongComposerForm({
                 : "text-muted-foreground hover:text-foreground hover:bg-background/50"
             }`}
           >
-            🎤 Desde Letra (Karaoke)
+            🎤 Desde Letra
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => setValue("generationMode", "piano")}
+            className={`flex-1 text-[11px] font-bold py-2 rounded-lg transition-all ${
+              generationMode === "piano" 
+                ? "bg-primary text-primary-foreground shadow-sm" 
+                : "text-muted-foreground hover:text-primary hover:bg-primary/10 border border-transparent hover:border-primary/20"
+            }`}
+            title="Generar solo de piano realista"
+          >
+            🎹 Pianista IA
           </button>
         </div>
 
@@ -111,7 +155,12 @@ export function SongComposerForm({
 
             {generationMode === "lyrics" && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                <Label htmlFor="lyrics" className="text-sm font-bold text-foreground">Letra de la Canción</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="lyrics" className="text-sm font-bold text-foreground">Letra de la Canción</Label>
+                  <button type="button" onClick={() => handleEnhance('lyrics')} disabled={isEnhancingLyrics} className="text-xs flex items-center gap-1.5 text-primary hover:text-primary/80 transition-colors font-medium bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-md">
+                    {isEnhancingLyrics ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Mejora IA
+                  </button>
+                </div>
                 <textarea 
                   id="lyrics"
                   rows={6}
@@ -123,9 +172,14 @@ export function SongComposerForm({
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="prompt" className="text-sm font-bold text-foreground">
-                {generationMode === "lyrics" ? "Estilo / Vibra (Opcional)" : "Concepto / Vibra Musical"}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="prompt" className="text-sm font-bold text-foreground">
+                  {generationMode === "lyrics" ? "Estilo / Vibra (Opcional)" : "Concepto / Vibra Musical"}
+                </Label>
+                <button type="button" onClick={() => handleEnhance('prompt')} disabled={isEnhancingPrompt} className="text-xs flex items-center gap-1.5 text-primary hover:text-primary/80 transition-colors font-medium bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-md">
+                  {isEnhancingPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Mejora IA
+                </button>
+              </div>
               <textarea 
                 id="prompt"
                 rows={generationMode === "lyrics" ? 2 : 4}
@@ -263,6 +317,36 @@ export function SongComposerForm({
               </div>
             </div>
 
+            {/* PIANO SPECIFIC SETTINGS */}
+            {generationMode === "piano" && (
+              <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
+                <div className="space-y-2">
+                  <Label htmlFor="pianoMode" className="text-xs font-bold">Modo Pianístico</Label>
+                  <select
+                    id="pianoMode"
+                    {...register("pianoMode")}
+                    className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  >
+                    <option value="accompaniment">Solo Acompañamiento</option>
+                    <option value="melody">Acompañamiento + Melodía</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pianoComplexity" className="text-xs font-bold">Virtuosismo</Label>
+                  <select
+                    id="pianoComplexity"
+                    {...register("pianoComplexity")}
+                    className="w-full rounded-xl border border-border bg-background/50 h-10 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  >
+                    <option value="simple">Básico (Texturas simples)</option>
+                    <option value="intermediate">Intermedio</option>
+                    <option value="advanced">Avanzado (Complejo)</option>
+                    <option value="virtuoso">Virtuoso (Rápido, Denso)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="tempo" className="text-xs font-bold">Tempo (BPM)</Label>
               <Input
@@ -304,6 +388,7 @@ export function SongComposerForm({
           )}
           
           {/* ─── AUTO-GENERATION PANEL ─── */}
+          {generationMode !== "piano" && (
           <div className="col-span-1 md:col-span-2 space-y-4 bg-primary/5 p-4 rounded-2xl border border-primary/20">
             <label className="flex items-center gap-3 cursor-pointer">
               <input 
@@ -405,6 +490,7 @@ export function SongComposerForm({
               </div>
             )}
           </div>
+          )}
 
         </div>
 

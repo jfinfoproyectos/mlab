@@ -66,9 +66,15 @@ export function SongLibrary({
                       <span className="text-[9px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
                         {song.genre}
                       </span>
-                      <span className="text-[9px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                        Sincronizada
-                      </span>
+                      {song.id?.startsWith("temp-") ? (
+                        <span className="text-[9px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20" title="Guardada localmente en tu navegador. Se guardará en la base de datos al reconectarse.">
+                          Local
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                          Sincronizada
+                        </span>
+                      )}
                     </div>
                     <h4 className="text-xl font-black tracking-tight text-foreground truncate pt-1">
                       {song.title}

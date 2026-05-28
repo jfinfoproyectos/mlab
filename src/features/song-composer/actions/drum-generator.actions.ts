@@ -1,6 +1,6 @@
 "use server";
 
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { getActiveAiProvider } from '@/features/ai-assistant/services/ai-provider.service';
 import { z } from "zod";
 import { songTrackNoteSchema, SongTrackNote, SongStructure } from "../schemas/song-generator.schema";
@@ -31,10 +31,14 @@ export async function generateDrumTrackAction(params: {
 
     const systemPrompt = `Eres un Baterista Profesional y Productor Musical de clase mundial.
 Tu tarea es componer un arreglo de batería y percusión (GROOVE) altamente realista, con swing, dinámicas humanas (Ghost notes) y fills (redobles) creativos.
-INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Tu interpretación debe emular a los bateristas y productores más reconocidos del género musical solicitado. ¡EVITA TOTALMENTE LA MONOTONÍA! Usa síncopas, notas fantasma (ghost notes) y variaciones sutiles a lo largo del patrón. Que no suene a una caja de ritmos estática, sino a un músico humano tocando con "feeling" y "groove" de primer nivel.
+INSTRUCCIÓN CRÍTICA DE REALISMO Y ESTILO: Tu interpretación debe emular a los bateristas y productores más reconocidos del género musical solicitado. Si el usuario sugiere un artista clásico o un ARTISTA MODERNO DE CUALQUIER GÉNERO (ej. The Weeknd, Blink-182, Rosalía, Travis Barker, Daft Punk), IDENTIFICA SU ESTILO MUSICAL, su "groove" de batería característico, y genéralo creativamente adoptando su filosofía. ¡EVITA TOTALMENTE LA MONOTONÍA! Usa síncopas, notas fantasma (ghost notes) y variaciones sutiles a lo largo del patrón. Que no suene a una caja de ritmos estática, sino a un músico humano tocando con "feeling" y "groove" de primer nivel.
 
 INSTRUCCIONES CRÍTICAS:
-1. Longitud: Debes componer notas a lo largo de TODA la duración de la sección, desde el beat 0.0 hasta el beat ${totalBeats}.0.
+1. REGLAS UNIVERSALES DE COHESIÓN:
+   - MANTENER UN ANCLA: En cualquier género musical, no cambies todo el patrón a la vez al generar variaciones. Mantén constante un "ancla" rítmica (ej. el patrón del bombo o la caja) mientras varías los platos (Hi-Hat a Ride). Esto evitará el caos y mantendrá el groove.
+   - TRANSICIONES GRADUALES: Para entrar a una nueva sección o variación, usa redobles.
+3. EXCELENCIA EN FINALES (OUTRO/CODA): Si el usuario indica que la sección actual es un "Outro", "Coda" o "Final", OBLIGATORIAMENTE la batería no puede terminar cortada abruptamente a máxima intensidad. Debes GARANTIZAR UN FINAL ESPECTACULAR: remata con un platillo (Crash) potente en el último beat lógico y luego deja un silencio absoluto, o crea un "ritardando" (redoble que pierde energía) para cerrar la canción como un verdadero profesional.
+2. Longitud: Debes componer notas a lo largo de TODA la duración de la sección, desde el beat 0.0 hasta el beat ${totalBeats}.0.
 2. Dinámicas: NUNCA uses la misma velocidad para todos los golpes. El Hi-Hat debe tener acentos fuertes (0.8) y débiles (0.4). La caja debe tener golpes potentes (0.9) y notas fantasma (0.2). El bombo suele ser constante pero puede tener variaciones sutiles.
 3. El compás típico es 4/4. Un tiempo (beat) es una negra (durationBeats: 1.0). Una corchea dura 0.5. Una semicorchea dura 0.25.
 4. Genera redobles (fills) en los últimos 2 a 4 tiempos de la sección para dar paso a la siguiente.${syncInstructions}
@@ -69,16 +73,16 @@ Instrucción del usuario para el Groove/Estilo:
       velocity: z.number().describe("Fuerza del golpe (0.0 a 1.0). Expresividad humana CRÍTICA."),
     });
 
-    const result = await generateObject({
+    const result = await generateText({
       model: provider,
-      output: 'array',
-      schema: drumNoteSchema,
+      output: Output.array({ element: drumNoteSchema }),
       system: systemPrompt,
       prompt: targetPrompt,
     });
+    const generated = result.output;
 
-    if (Array.isArray(result.object)) {
-      const generatedNotes: SongTrackNote[] = result.object.map((n: any) => ({
+    if (Array.isArray(generated)) {
+      const generatedNotes: SongTrackNote[] = generated.map((n: any) => ({
         id: crypto.randomUUID(),
         note: n.note,
         startBeat: n.startBeat,

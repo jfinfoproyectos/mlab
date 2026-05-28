@@ -21,8 +21,10 @@ import {
   refineSongWithAiAction
 } from "../actions/song-generator.actions";
 import { generateDrumTrackAction } from "../actions/drum-generator.actions";
-import { generatePolyphonicRhythmAction } from '@/features/rhythm-generator/actions/rhythm-generator.actions';
-import { generateChordProgressionAction } from '@/features/chord-generator/actions/chord-generator.actions';
+import { generatePolyphonicRhythmAction } from '@/features/rhythm-generator';
+import { generateChordProgressionAction } from '@/features/chord-generator';
+import { generateIntelligentMelodyAction } from '../actions/intelligent-melody.actions';
+import { generatePianoBlueprintAction, generatePianoSectionNotesAction } from '@/features/piano-composer';
 import { exportSongToMidi } from '../services/midi-export';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -107,6 +109,45 @@ import { DrumComposerDialog } from "./DrumComposerDialog";
 import { SectionRegenDialog } from "./SectionRegenDialog";
 import { type DrumMapping } from "../schemas/drum-maps";
 import { syncChordRhythmTrackNotes } from '@/lib/music/chord-rhythm';
+
+// Helper functions for LocalStorage fallback
+const getLocalSongs = (): SongStructure[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("musiclab_local_songs");
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("Error reading local songs:", e);
+    return [];
+  }
+};
+
+const saveLocalSong = (song: SongStructure): void => {
+  if (typeof window === "undefined") return;
+  try {
+    const songs = getLocalSongs();
+    const idx = songs.findIndex((s) => s.id === song.id);
+    if (idx !== -1) {
+      songs[idx] = song;
+    } else {
+      songs.unshift(song);
+    }
+    localStorage.setItem("musiclab_local_songs", JSON.stringify(songs));
+  } catch (e) {
+    console.error("Error saving local song:", e);
+  }
+};
+
+const deleteLocalSong = (id: string): void => {
+  if (typeof window === "undefined") return;
+  try {
+    const songs = getLocalSongs();
+    const updated = songs.filter((s) => s.id !== id);
+    localStorage.setItem("musiclab_local_songs", JSON.stringify(updated));
+  } catch (e) {
+    console.error("Error deleting local song:", e);
+  }
+};
 
 // Helpers for visual color coding
 function getRoleColor(role: string): string {
@@ -468,8 +509,26 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
   
   // Helper to automatically background-save song changes to DB
   const saveSongBackground = useCallback((updatedSong: SongStructure) => {
-    if (!updatedSong.id) return Promise.resolve();
+    // If the song doesn't have an ID, generate a temporary one
+    const songToSave = { ...updatedSong };
+    if (!songToSave.id) {
+      songToSave.id = `temp-${Date.now()}`;
+    }
     
+    // Save to local storage immediately
+    saveLocalSong(songToSave);
+    
+    // Update local state immediately so library is updated in memory
+    setSavedSongs(prev => {
+      const idx = prev.findIndex(s => s.id === songToSave.id);
+      if (idx !== -1) {
+        const updated = [...prev];
+        updated[idx] = songToSave;
+        return updated;
+      }
+      return [songToSave, ...prev];
+    });
+
     return new Promise<void>((resolve) => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -477,10 +536,38 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
       
       saveTimeoutRef.current = setTimeout(async () => {
         try {
-          await saveSongAction(updatedSong);
+          const res = await saveSongAction(songToSave);
+          if (res.success && res.song) {
+            // Swap temp ID with real DB ID if it was a new song
+            if (songToSave.id && songToSave.id.startsWith("temp-")) {
+              deleteLocalSong(songToSave.id);
+            }
+            const savedFinal: SongStructure = {
+              ...(res.song.data as SongStructure),
+              id: res.song.id
+            };
+            saveLocalSong(savedFinal);
+            
+            setActiveSong(prev => {
+              if (prev && (prev.id === songToSave.id || prev.id === savedFinal.id)) {
+                return savedFinal;
+              }
+              return prev;
+            });
+
+            setSavedSongs(prev => {
+              const updated = prev.filter(s => s.id !== songToSave.id);
+              const idx = updated.findIndex(s => s.id === savedFinal.id);
+              if (idx !== -1) {
+                updated[idx] = savedFinal;
+                return updated;
+              }
+              return [savedFinal, ...updated];
+            });
+          }
           resolve();
         } catch (e) {
-          console.warn("Background auto-save failed:", e);
+          console.warn("Background auto-save to database failed (offline fallback active):", e);
           resolve();
         }
       }, 1500); // Debounce for 1.5 seconds to prevent spamming DB on every slider tick
@@ -685,7 +772,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               const chordsList = section.chords.chords.map(c => ({
                 chord: c.chord,
                 pianoNotes: c.pianoNotes || [],
-                role: c.role || "Tónica"
+                role: c.role || "Tónica",
+                duration: c.duration || 4
               }));
 
               const result = await generatePolyphonicRhythmAction({
@@ -1123,7 +1211,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         
         let totalBeats = sect.chordCount ? sect.chordCount * 4 : 16;
         if (sect.chords && sect.chords.chords.length > 0) {
-          totalBeats = sect.chords.chords.length * 4;
+          totalBeats = sect.chords.chords.reduce((sum, c) => sum + (c.duration || 4), 0);
         }
 
         // Extract rhythm notes if sync is enabled
@@ -1279,6 +1367,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
 
       // Run sequentially so we can abort between sections
       const results: { sectionId: string; success: boolean; notes?: any }[] = [];
+      let motifHistoryContext = "";
+
       for (let index = 0; index < sectionsWithChords.length; index++) {
         if (signal.aborted) {
           toast.dismiss(toastId);
@@ -1334,7 +1424,8 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               trackName: trackName,
               midiChannel: midiChannel,
               userPrompt: prompt || `Arreglo instrumental para ${trackName}`,
-              lyrics: lyrics || sect.lyrics
+              lyrics: lyrics || sect.lyrics,
+              motifContext: motifHistoryContext
             };
             if (prevSect?.type) payload.previousSectionType = prevSect.type;
             if (previousChordsList) payload.previousChordsList = previousChordsList;
@@ -1342,7 +1433,30 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             if (nextChordsList) payload.nextChordsList = nextChordsList;
             if (progressionRhythmNotes) payload.progressionRhythmNotes = progressionRhythmNotes;
 
-            const res = await generateSectionTrackAction(payload);
+            const isIntelligentMelody = trackName.toLowerCase().includes("voz") || 
+                                        trackName.toLowerCase().includes("solo") || 
+                                        trackName.toLowerCase().includes("lead") ||
+                                        trackName.toLowerCase().includes("melod");
+
+            let res;
+            if (isIntelligentMelody) {
+              res = await generateIntelligentMelodyAction({
+                songTitle: activeSong.title,
+                songGenre: activeSong.genre,
+                sectionType: sect.type,
+                sectionKey: sect.key,
+                sectionScale: sect.scale,
+                chordsList,
+                trackName,
+                midiChannel,
+                userPrompt: prompt || `Melodía para ${trackName}`,
+                lyrics: lyrics || sect.lyrics,
+                isVocal: trackName.toLowerCase().includes("voz") || trackName.toLowerCase().includes("vocal"),
+                motifContext: motifHistoryContext
+              });
+            } else {
+              res = await generateSectionTrackAction(payload);
+            }
 
             if (signal.aborted) {
               toast.dismiss(toastId);
@@ -1352,6 +1466,9 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             if (res.success && res.data?.notes && res.data.notes.length > 0) {
               results.push({ sectionId: sect.id, success: true, notes: res.data.notes });
               trackSuccess = true;
+              if (res.motifCreated) {
+                motifHistoryContext += `[${sect.type}]: ${res.motifCreated}\n`;
+              }
             } else {
               throw new Error(res.error || "La IA devolvió un arreglo vacío");
             }
@@ -1643,15 +1760,74 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
   const fetchSavedSongs = useCallback(async () => {
     setIsLoadingSongs(true);
     try {
-      const res = await loadUserSongsAction();
-      if (res.success && res.songs) {
-        // Inject the DB row id into the song data payload so saves become updates
-        setSavedSongs(
-          res.songs.map(s => ({
+      const localSongs = getLocalSongs();
+      
+      let dbSongs: SongStructure[] = [];
+      let dbSuccess = false;
+      try {
+        const res = await loadUserSongsAction();
+        if (res.success && res.songs) {
+          dbSuccess = true;
+          dbSongs = res.songs.map(s => ({
             ...s.data,
             id: s.id, // ensure the DB id is always present
-          }))
-        );
+          }));
+        }
+      } catch (dbError) {
+        console.error("Database connection failed while fetching songs:", dbError);
+      }
+
+      // Merge logic:
+      const merged: SongStructure[] = [...dbSongs];
+      
+      // Look at local songs
+      for (const localSong of localSongs) {
+        if (!localSong.id) continue;
+        
+        if (localSong.id.startsWith("temp-")) {
+          if (!merged.some(s => s.id === localSong.id)) {
+            merged.push(localSong);
+          }
+        } else {
+          const dbIndex = dbSongs.findIndex(s => s.id === localSong.id);
+          if (dbIndex === -1) {
+            if (!dbSuccess) {
+              merged.push(localSong);
+            } else {
+              deleteLocalSong(localSong.id);
+            }
+          } else {
+            saveLocalSong(dbSongs[dbIndex]);
+          }
+        }
+      }
+
+      // Sort by updatedAt or default to order
+      setSavedSongs(merged);
+
+      // Auto-sync local-only songs if DB is back online
+      if (dbSuccess && localSongs.some(s => s.id?.startsWith("temp-"))) {
+        const unsynced = localSongs.filter(s => s.id?.startsWith("temp-"));
+        for (const song of unsynced) {
+          try {
+            const { id: _, ...songWithoutId } = song;
+            const res = await saveSongAction(songWithoutId as any);
+            if (res.success && res.song) {
+              deleteLocalSong(song.id!);
+              const syncedSong = { ...(res.song.data as SongStructure), id: res.song.id };
+              saveLocalSong(syncedSong);
+              
+              const tempIndex = merged.findIndex(s => s.id === song.id);
+              if (tempIndex !== -1) {
+                merged[tempIndex] = syncedSong;
+              }
+              toast.success(`Sincronizada canción "${song.title}" con la nube.`);
+            }
+          } catch (syncErr) {
+            console.warn("Auto-sync failed for song:", song.title, syncErr);
+          }
+        }
+        setSavedSongs([...merged]);
       }
     } catch (err) {
       console.error("Error loading saved songs:", err);
@@ -1766,6 +1942,234 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
     setActiveSong(null);
     setActiveSectionId(null);
     setActiveTab("estudio");
+    
+    // --- PIANO MODE INTERCEPTION ---
+    if (data.generationMode === "piano") {
+      const signal = startAiProcess("piano-composition", "Componiendo piano...");
+      startTask("Componiendo pieza de piano...");
+      try {
+        const pianoData = {
+          prompt: data.prompt,
+          musicStyle: data.musicStyle,
+          complexity: (data as any).pianoComplexity || "intermediate",
+          mode: (data as any).pianoMode || "accompaniment",
+          targetDurationMinutes: data.targetDurationMinutes,
+          key: data.key,
+          scale: data.scale,
+          tempo: data.tempo,
+        };
+        
+        const blueprintResult = await generatePianoBlueprintAction(pianoData as any);
+        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        
+        if (!blueprintResult.success || !blueprintResult.data) {
+          throw new Error(blueprintResult.error || "No se pudo generar la estructura de piano");
+        }
+        
+        const blueprint = blueprintResult.data;
+
+        setSongGenProgress(20);
+        setSongGenStatus("Estructura de piano creada. Componiendo notas y voicings...");
+        
+        const track: SongTrack = {
+          id: "piano-track-1",
+          name: "Piano Solista",
+          midiChannel: 1,
+          instrumentPreset: "grand-piano",
+          volume: 1.0,
+          sectionNotes: {},
+        };
+
+        const newSong: SongStructure = {
+          id: `piano-${Date.now()}`,
+          title: blueprint.title,
+          genre: blueprint.genre,
+          key: blueprint.key,
+          tempo: blueprint.tempo,
+          description: blueprint.description,
+          sections: blueprint.sections.map((sect, index) => ({
+            id: `sec-${index}-${Date.now()}`,
+            type: sect.type,
+            prompt: sect.prompt,
+            key: sect.key,
+            scale: sect.scale,
+            chordCount: sect.chordCount,
+            chords: null,
+          })),
+          tracks: [track]
+        };
+
+        setActiveSong(newSong);
+        activeSongRef.current = newSong;
+        setActiveSectionId(newSong.sections[0].id);
+
+        const totalSections = newSong.sections.length;
+        let index = 0;
+        let motifHistoryContext = "";
+
+        for (const sect of newSong.sections) {
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+          setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: true }));
+          updateTaskName(`Componiendo notas para: ${sect.type}`);
+          setSongGenStatus(`Componiendo notas para ${sect.type}...`);
+          
+          try {
+            // 1. Generate Chord Progression
+            setSongGenStatus(`Generando progresión de acordes para ${sect.type}...`);
+            const styleInstruction = pianoData.musicStyle && pianoData.musicStyle !== "Automático" ? `\n\nESTILO MUSICAL OBJETIVO: ${pianoData.musicStyle}. Adapta la complejidad armónica para que encaje en este estilo pianístico.` : "";
+            const chordResult = await generateChordProgressionAction({
+              prompt: `${sect.prompt}. Sección: ${sect.type} de la obra de piano ${newSong.title}${styleInstruction}`,
+              key: sect.key || "C Minor",
+              scale: sect.scale || "Natural Minor",
+              tempo: String(newSong.tempo),
+              chordCount: sect.chordCount || 8,
+              lyrics: sect.lyrics
+            });
+
+            let generatedChordsStr = "Progresión libre — inventa los acordes y arpegios creativamente";
+            let arpegioExampleHint = "";
+            if (chordResult.success && chordResult.data) {
+              const chordsData: any[] = chordResult.data.chords;
+              // Build a rich per-chord description that tells the AI EXACTLY which notes to arpeggiate
+              generatedChordsStr = chordsData.map((c: any, idx: number) => {
+                const notes = (c.pianoNotes || []).join(", ") || "(notas libres)";
+                return `Acorde ${idx + 1}: ${c.chord} | Duración: ${c.duration} tiempos | Rol: ${c.role || "?"} | Escala sugerida: ${c.suggestedScale || "?"} | Notas MIDI: [${notes}]`;
+              }).join("\n");
+
+              // Build a concrete arpegio example from the first chord's actual notes
+              const firstChord = chordsData[0];
+              if (firstChord && firstChord.pianoNotes && firstChord.pianoNotes.length >= 3) {
+                const ns = firstChord.pianoNotes;
+                arpegioExampleHint = `\n\nEJEMPLO CONCRETO PARA EL PRIMER ACORDE (${firstChord.chord}, ${firstChord.duration} tiempos):\n` +
+                  `NO hagas esto (bloque robótico):\n` +
+                  `{ note: "${ns[0]}", startBeat: 0.0 }, { note: "${ns[1]}", startBeat: 0.0 }, { note: "${ns[2]}", startBeat: 0.0 }\n` +
+                  `SÍ haz esto (arpegio humano):\n` +
+                  `{ note: "${ns[0]}", startBeat: 0.0, hand: "left", sustain: true }, ` +
+                  `{ note: "${ns[Math.min(1, ns.length-1)]}", startBeat: 0.25, hand: "left" }, ` +
+                  `{ note: "${ns[Math.min(2, ns.length-1)]}", startBeat: 0.5, hand: "right", velocity: 0.85 }, ` +
+                  `{ note: "${ns[Math.min(3, ns.length-1)] || ns[2]}", startBeat: 0.75, hand: "right" }, ` +
+                  `{ note: "${ns[Math.min(1, ns.length-1)]}", startBeat: 1.0, hand: "left" }, ` +
+                  `{ note: "${ns[Math.min(2, ns.length-1)]}", startBeat: 1.25, hand: "right" }...`;
+              }
+
+              // Update state so UI shows the chords in the timeline
+              setActiveSong(prev => {
+                if (prev) {
+                  const next = { ...prev };
+                  next.sections = next.sections.map(s => s.id === sect.id ? { ...s, chords: chordResult.data } : s);
+                  activeSongRef.current = next;
+                  return next;
+                }
+                return null;
+              });
+            }
+
+            // 2. Generate Piano Notes based on the chords
+            setSongGenStatus(`Componiendo notas de piano para ${sect.type}...`);
+            const notesResult = await generatePianoSectionNotesAction(
+              sect.prompt || "Generar",
+              sect.type || "Sección",
+              sect.key || "C Minor",
+              sect.scale || "Natural",
+              sect.chordCount || 8,
+              pianoData.complexity || "intermediate",
+              pianoData.mode || "accompaniment",
+              generatedChordsStr,
+              motifHistoryContext,
+              arpegioExampleHint
+            );
+            
+            if (!notesResult.success || !notesResult.data) {
+              throw new Error(notesResult.error || "Error al generar las notas");
+            }
+            
+            if (notesResult.motifCreated) {
+              motifHistoryContext += `[${sect.type}]: ${notesResult.motifCreated}\n`;
+            }
+            
+            const generatedNotes = notesResult.data.map(n => ({
+              note: n.note,
+              startBeat: n.startBeat,
+              durationBeats: n.durationBeats,
+              velocity: n.velocity,
+              sustain: n.sustain
+            }));
+            
+            // force re-render and deep copy to ensure UI updates
+            setActiveSong(prev => {
+              if (prev) {
+                const next = { ...prev };
+                next.tracks = (next.tracks || []).map(t => {
+                  if (t.id === track.id) {
+                    return {
+                      ...t,
+                      sectionNotes: {
+                        ...t.sectionNotes,
+                        [sect.id]: generatedNotes
+                      }
+                    };
+                  }
+                  return t;
+                });
+                activeSongRef.current = next;
+                return next;
+              }
+              return null;
+            });
+          } catch (err: any) {
+             console.error("Error generando piano para sección", sect.type, err);
+             toast.error(`Error al componer sección ${sect.type}`);
+             
+             // Even on error, update state with empty array to prevent hanging
+             setActiveSong(prev => {
+              if (prev) {
+                const next = { ...prev };
+                next.tracks = (next.tracks || []).map(t => {
+                  if (t.id === track.id) {
+                    return { ...t, sectionNotes: { ...t.sectionNotes, [sect.id]: [] } };
+                  }
+                  return t;
+                });
+                activeSongRef.current = next;
+                return next;
+              }
+              return null;
+            });
+          }
+          setGeneratingSectionIds(prev => ({ ...prev, [sect.id]: false }));
+          index++;
+          setSongGenProgress(20 + Math.floor((index / totalSections) * 80));
+        }
+
+        setSongGenProgress(100);
+        setSongGenStatus("¡Pieza pianística completada!");
+        
+        // Auto-save when fully generated
+        if (typeof handleSaveSong === "function") {
+          await handleSaveSong();
+        }
+
+        toast.success("¡Composición pianística finalizada!");
+        if (typeof (window as any).triggerPlay === "function") {
+          setTimeout(() => (window as any).triggerPlay(), 1000);
+        }
+        setIsComposerOpen(false);
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+           console.error(err);
+           toast.error("Error al generar la pieza de piano.");
+        }
+      } finally {
+        setLoading(false);
+        setSongGenProgress(0);
+        setSongGenStatus("");
+        setAiProcess(prev => prev?.id === "piano-composition" ? null : prev);
+        endTask();
+      }
+      return;
+    }
+    // --- END PIANO MODE INTERCEPTION ---
+
     const signal = startAiProcess("song-composition", "Componiendo canción completa");
     startTask("Componiendo canción completa...");
     try {
@@ -2018,10 +2422,12 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
             progress: 100
           };
 
+          let motifHistoryContext = "";
+
           for (const sect of finalSong.sections) {
             if (!sect.lyrics || !sect.chords) continue;
             
-            updateTaskName(`Componiendo melodía para: ${sect.type}`);
+            updateTaskName(`Componiendo melodía inteligente para: ${sect.type}`);
             
             const payload: any = {
               songTitle: finalSong.title,
@@ -2038,37 +2444,68 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
               midiChannel: 1,
               userPrompt: data.prompt || "Voz cantada emotiva adaptada a la letra, usa saltos y tensiones ricas armónicamente.",
               lyrics: sect.lyrics,
-              useOrnamentalNotes: true,
-              ornamentalTypes: [
-                "passing-tones",
-                "neighbor-tones",
-                "chromatic-approach",
-                "9th-11th-13th",
-                "suspensions",
-                "anticipations"
-              ]
+              isVocal: true,
+              motifContext: motifHistoryContext
             };
 
             try {
-              const res = await generateSectionTrackAction(payload);
+              const res = await generateIntelligentMelodyAction(payload);
               if (res.success && res.data?.notes && res.data.notes.length > 0) {
                 if (!melodyTrack.sectionNotes) melodyTrack.sectionNotes = {};
                 if (!melodyTrack.prompts) melodyTrack.prompts = {};
                 melodyTrack.sectionNotes[sect.id] = res.data.notes;
                 melodyTrack.prompts[sect.id] = payload.userPrompt;
+                
+                if (res.motifCreated) {
+                  motifHistoryContext += `[${sect.type}]: ${res.motifCreated}\n`;
+                }
               }
             } catch (e) {
-              console.error("Error generating melody for", sect.type, e);
+              console.error("Error generating intelligent melody for", sect.type, e);
             }
           }
           
           finalSong.tracks = [...(finalSong.tracks || []), melodyTrack];
         }
         
-        setActiveSong(finalSong);
-        activeSongRef.current = finalSong;
+        // Auto-save new song to DB/local to get an ID so it appears in the library
+        const finalSongWithTempId = {
+          ...finalSong,
+          id: finalSong.id || `temp-${Date.now()}`
+        };
 
-        toast.success("¡Canción completa generada!");
+        // Save locally first
+        saveLocalSong(finalSongWithTempId);
+
+        try {
+          const autoSaveRes = await saveSongAction(finalSongWithTempId);
+          if (autoSaveRes.success && autoSaveRes.song) {
+            // Clean up temporary ID
+            deleteLocalSong(finalSongWithTempId.id);
+            const savedFinalSong: SongStructure = {
+              ...(autoSaveRes.song.data as SongStructure),
+              id: autoSaveRes.song.id,
+            };
+            saveLocalSong(savedFinalSong);
+            setActiveSong(savedFinalSong);
+            activeSongRef.current = savedFinalSong;
+            await fetchSavedSongs();
+            toast.success("¡Canción completa generada y guardada en tu biblioteca!");
+          } else {
+            console.warn("Auto-save to database failed, falling back to local:", autoSaveRes.error);
+            setActiveSong(finalSongWithTempId);
+            activeSongRef.current = finalSongWithTempId;
+            await fetchSavedSongs();
+            toast.info("¡Canción generada y guardada localmente! (Nube sin conexión)");
+          }
+        } catch (_saveErr) {
+          console.warn("Auto-save to database failed, falling back to local:", _saveErr);
+          setActiveSong(finalSongWithTempId);
+          activeSongRef.current = finalSongWithTempId;
+          await fetchSavedSongs();
+          toast.info("¡Canción generada y guardada localmente! (Nube sin conexión)");
+        }
+
         setIsComposerOpen(false);
       } else {
         toast.error(res.error || "Fallo al crear estructura de canción.");
@@ -2096,25 +2533,60 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
       toast.error("No hay canción activa para guardar. Genera una canción primero.");
       return;
     }
+    
+    // Generate temporary ID if missing
+    const songToSave = { ...currentSong };
+    if (!songToSave.id) {
+      songToSave.id = `temp-${Date.now()}`;
+    }
+
+    // Save to local storage first
+    saveLocalSong(songToSave);
+    
+    // Update local state in memory immediately
+    setSavedSongs(prev => {
+      const idx = prev.findIndex(s => s.id === songToSave.id);
+      if (idx !== -1) {
+        const updated = [...prev];
+        updated[idx] = songToSave;
+        return updated;
+      }
+      return [songToSave, ...prev];
+    });
+
     setIsSaving(true);
     try {
-      const res = await saveSongAction(currentSong);
+      const res = await saveSongAction(songToSave);
       if (res.success && res.song) {
         toast.success("¡Canción guardada con éxito en la base de datos!");
-        // Merge the DB id back into active song so future saves do updates
+        
+        // Swap temp ID with real DB ID
+        if (songToSave.id.startsWith("temp-")) {
+          deleteLocalSong(songToSave.id);
+        }
         const savedData: SongStructure = {
           ...(res.song.data as SongStructure),
           id: res.song.id,
         };
+        saveLocalSong(savedData);
         setActiveSong(savedData);
         activeSongRef.current = savedData;
         await fetchSavedSongs();
       } else {
-        toast.error(`No se pudo guardar: ${res.error ?? "Error desconocido"}`);
+        console.warn("Cloud save failed, falling back to local:", res.error);
+        toast.info("Guardada en la biblioteca local (Sin conexión con la nube)");
+        
+        setActiveSong(songToSave);
+        activeSongRef.current = songToSave;
+        await fetchSavedSongs();
       }
     } catch (err: any) {
-      console.error("Save error:", err);
-      toast.error(`Error al guardar: ${err?.message ?? "Error desconocido"}`);
+      console.error("Save error, falling back to local:", err);
+      toast.info("Guardada en la biblioteca local (Sin conexión con la nube)");
+      
+      setActiveSong(songToSave);
+      activeSongRef.current = songToSave;
+      await fetchSavedSongs();
     } finally {
       setIsSaving(false);
     }
@@ -2124,20 +2596,37 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
   const handleDeleteSong = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("¿Seguro que deseas eliminar esta canción?")) return;
+    
+    // Delete locally first
+    deleteLocalSong(id);
+    
+    // Update local state immediately
+    setSavedSongs(prev => prev.filter(s => s.id !== id));
+    if (activeSong?.id === id) {
+      setActiveSong(null);
+      activeSongRef.current = null;
+      setActiveSectionId(null);
+    }
+    
+    if (id.startsWith("temp-")) {
+      toast.success("Canción eliminada de la biblioteca local.");
+      return;
+    }
+
     try {
       const res = await deleteSongAction(id);
       if (res.success) {
         toast.success("Canción eliminada.");
-        if (activeSong?.id === id) {
-          setActiveSong(null);
-          setActiveSectionId(null);
-        }
-        fetchSavedSongs();
+        await fetchSavedSongs();
       } else {
-        toast.error("Error al eliminar la canción.");
+        console.warn("Cloud delete failed:", res.error);
+        toast.success("Canción eliminada localmente (Error al sincronizar con la base de datos).");
+        await fetchSavedSongs();
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("Delete error, cloud sync failed:", err);
+      toast.success("Canción eliminada localmente (Error al sincronizar con la base de datos).");
+      await fetchSavedSongs();
     }
   };
 
@@ -2935,7 +3424,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden relative">
       {/* DAW Root Tabs Navigation Wrapper */}
-      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as any)} className="w-full h-full flex flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val as any); if (val === "biblioteca") { fetchSavedSongs(); } }} className="w-full h-full flex flex-col overflow-hidden">
         {headerPortalElement}
 
 

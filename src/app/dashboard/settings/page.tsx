@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { AiConfigService, AiConfigForm } from "@/features/ai-assistant";
 
+export const dynamic = 'force-dynamic';
 export default async function AdminSettingsPage() {
   const session = await getSession();
   if (!session) return null;

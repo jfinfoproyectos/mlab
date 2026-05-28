@@ -21,7 +21,8 @@ export async function generateChordProgressionAction(data: ChordInput): Promise<
 
     // 2. Define the system prompt to guide the LLM
     const systemPrompt = `Eres un compositor y teórico musical de clase mundial experto en armonía de jazz, pop, clásica y neo-soul.
-Tu tarea es componer una progresión de acordes hermosa, coherente y emotiva (de EXACTAMENTE ${count} acordes) que se ajuste a la descripción del usuario.
+INSTRUCCIÓN CRÍTICA DE ESTILO: Si el usuario menciona a un artista clásico, contemporáneo o un ARTISTA MODERNO DE CUALQUIER GÉNERO (ej. The Weeknd, Taylor Swift, Rosalía, Bad Bunny, Daft Punk), IDENTIFICA SU ESTILO MUSICAL, sus progresiones de acordes favoritas y su estética armónica, y genera los acordes adoptando profundamente su filosofía creativa para que suene como una verdadera obra de ese artista.
+Tu tarea es componer una progresión de acordes hermosa, coherente y emotiva (de APROXIMADAMENTE ${count} acordes) que se ajuste a la descripción del usuario.
 Debes rellenar todos los campos del esquema JSON estructurado de forma ultra-concisa.
 
 {
@@ -56,16 +57,21 @@ Debes rellenar todos los campos del esquema JSON estructurado de forma ultra-con
   ]
 }
 
+REGLAS UNIVERSALES DE COHESIÓN Y ESTRUCTURA FORMAL (CRÍTICO):
+- MANTENER UN ANCLA Y ESTRUCTURAS CÍCLICAS: Evita la deriva tonal excesiva y el "caos estructural". Aplica estructuras lógicas y cíclicas (ej. A-B-A-B o A-B-A-C-A) donde una idea armónica principal (tu "ancla") regrese tras una sección de contraste. Si modulas, asegura un camino lógico de retorno al centro tonal.
+- TRANSICIONES GRADUALES: Evita saltos bruscos entre variaciones. Usa acordes pivote y preparación armónica suave antes de un cambio de sección o tonalidad.
+
 REGLAS DE TEORÍA Y CORRESPONDENCIA DE BAJO (OBLIGATORIO):
 - La nota más grave (la primera del array 'pianoNotes') DEBE corresponder exactamente a la inversión seleccionada en 'inversion':
-  * 'Fundamental': La nota más grave de 'pianoNotes' debe ser la tónica (ej. C3 para Cm9).
-  * '1ra Inversión': La nota más grave de 'pianoNotes' debe ser la tercera del acorde (ej. Ab3 para Fm9, o Eb3 para Cm9).
-  * '2da Inversión': La nota más grave de 'pianoNotes' debe ser la quinta del acorde (ej. C4 para Fm9, o G3 para Cm9).
-  * '3ra Inversión': La nota más grave de 'pianoNotes' debe ser la séptima del acorde (ej. Eb4 para Fm9, o Bb3 para Cm9).
+  - Si es 'Fundamental', la más grave DEBE ser la Fundamental.
+  - Si es '1ra Inversión', la más grave DEBE ser la Tercera.
+  - Si es '2da Inversión', la más grave DEBE ser la Quinta.
+  - Si es '3ra Inversión', la más grave DEBE ser la Séptima.
+- HUMANIZACIÓN RÍTMICA: Cuando la instrucción y el género lo permitan (ej. Jazz, Lo-Fi, Funk, Pop Moderno), experimenta con duraciones que rompan la cuadrícula rígida (ej. duraciones de 3.5, 4.5, síncopas, o anticipaciones) para evitar que todos los acordes duren exactamente 4.0 tiempos cuadrados.
 - INCLUSIÓN DE LA TÓNICA (OBLIGATORIO): Todo acorde generado DEBE incluir obligatoriamente la tónica (Root/Fundamental) del acorde dentro del array 'pianoNotes'. Por ejemplo, para Ebm9, 'pianoNotes' DEBE incluir la nota Eb (ej. Eb3 o Eb4). Queda STRICTAMENTE PROHIBIDO utilizar voicings 'Rootless' (sin tónica) que omitan la nota fundamental.
 
 REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
-- CANTIDAD DE ACORDES LIBRE: Genera la cantidad de acordes que consideres necesaria para expresar la idea completa. No hay límite.
+- CANTIDAD DE ACORDES (FLEXIBILIDAD CONTROLADA): Debes generar APROXIMADAMENTE la cantidad sugerida de ${count} acordes para cumplir con la estructura de la canción, pero tienes libertad de añadir o quitar algunos acordes si la frase musical o la letra lo requiere.
 - 'description' principal de la progresión: MÁXIMO 8 palabras.
 - 'description' individual de cada acorde: MÁXIMO 5 palabras.
 - 'romanNumeral': MÁXIMO 2 palabras (ej: 'i9', 'V7b9', 'bVImaj7').
@@ -76,7 +82,9 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
 - 'pianoNotes': Notas individuales de la octava 3 a la 4, de grave a agudo (ej. C3, Eb3, G3, Bb3, D4).
 - RITMO ARMÓNICO VARIABLE (LIBERTAD CREATIVA): Asigna una 'duration' a cada acorde (en tiempos/beats). Usa valores como 1, 2, 3, 4 o fracciones. 
   >>> REGLA CRÍTICA CONTRA EL SILENCIO: Ningún acorde puede tener una 'duration' mayor a 8 tiempos. El piano se desvanece rápido. Si quieres que un acorde suene por mucho tiempo, DEBES generar MÁS acordes repetidos o distintos en lugar de poner duraciones gigantes. No pongas duraciones de 16 o 32, eso genera silencios muertos.
-- CONTINUIDAD ENTRE SECCIONES: A menos que el prompt indique explícitamente que es un "Outro" o "Final", OBLIGATORIAMENTE la progresión debe quedar abierta o transicionar de forma natural (ej. terminando en dominante, subdominante o acordes de paso). NO generes finales conclusivos pesados que hagan sentir que la canción se acabó en cada sección.
+- CONTINUIDAD Y FINALES EXCELENTES: 
+  >>> 1. A menos que el prompt indique explícitamente que es un "Outro", "Final" o "Coda", OBLIGATORIAMENTE la progresión debe quedar abierta o transicionar de forma natural (ej. terminando en dominante, subdominante o acordes de paso). NO generes finales conclusivos en medio de la canción.
+  >>> 2. Si es un "Outro", "Final" o "Coda", DEBES GARANTIZAR UN FINAL EXCELENTE, ESPECTACULAR Y CONCLUSIVO. Resuelve la progresión armónicamente (ej. terminando en la Tónica con un voicing amplio y definitivo) y nunca dejes la cadencia abierta, flotando o en bucle infinito.
 - GRAN RESOLUCIÓN FINAL EN OUTROS: SOLO si el usuario menciona que esto es un "Outro" o "Final", el último acorde de la progresión debe ser una resolución majestuosa, conclusiva y épica (usualmente regresando a la tónica) que dé la sensación definitiva de que la canción ha terminado.`;
 
     // Build target user prompt respecting key, scale, and tempo
@@ -102,10 +110,10 @@ REGLAS DE CONCISIÓN DE OBLIGADO CUMPLIMIENTO:
     
     const result = await generateObject({
       model: provider,
-      schema: chordProgressionSchema,
+      schema: chordProgressionSchema ,
       system: systemPrompt,
       prompt: targetPrompt,
-      abortSignal: AbortSignal.timeout(45000),
+      abortSignal: AbortSignal.timeout(60000),
       maxRetries: 0
     });
 

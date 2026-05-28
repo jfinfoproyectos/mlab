@@ -501,8 +501,8 @@ export function useSongPlayback(
       const freq = noteToFreq(noteName);
       if (!freq || isNaN(freq)) return;
 
-      const out = activeOutputPortRef.current;
-      if (out) {
+      // Removed: const out = activeOutputPortRef.current;
+      // Removed: if (out) {
         try {
           triggerMidiActivity();
           const midiNum = noteToMidi(noteName);
@@ -517,14 +517,16 @@ export function useSongPlayback(
           const finalVelocity = Math.min(127, Math.max(0, scaledVelocity));
           
           const delay = start - performance.now();
-          const visualTimeout = setTimeout(() => {
-            // Send Note On precisely from Web Worker to bypass Windows Web MIDI queue dropping bugs
-            if (activeOutputPortRef.current) {
-              try {
-                activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity]));
-              } catch (err) {}
-            }
+          // 1. HARDWARE SCHEDULING
+          if (activeOutputPortRef.current) {
+            try {
+              // Send Note On precisely from Web Worker to bypass Windows Web MIDI queue dropping bugs
+              activeOutputPortRef.current.send(new Uint8Array([0x90 | channelIdx, midiNum, finalVelocity]));
+            } catch (err) {}
+          }
 
+          // 2. UI STATE SCHEDULING
+          const visualTimeout = setTimeout(() => {
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
             }
@@ -543,8 +545,6 @@ export function useSongPlayback(
         } catch (midiErr) {
           console.warn("MIDI Output send error:", midiErr);
         }
-      }
-      return;
     } catch (e) {
       console.error("Note playback error:", e);
     }
@@ -564,8 +564,8 @@ export function useSongPlayback(
       const freq = noteToFreq(noteName);
       if (!freq || isNaN(freq)) return;
 
-      const out = activeOutputPortRef.current;
-      if (out) {
+      // Removed: const out = activeOutputPortRef.current;
+      // Removed: if (out) {
         try {
           triggerMidiActivity();
           const midiNum = noteToMidi(noteName);
@@ -602,6 +602,8 @@ export function useSongPlayback(
           }
 
           // 2. UI STATE SCHEDULING (Visual only, can lag without affecting audio)
+          // Run this regardless of whether a MIDI output is connected or not,
+          // so lyrics highlighting and keyboard visual feedback still works.
           const visualTimeout = setTimeout(() => {
             if (!activeMidiNotesRef.current.includes(midiNum)) {
               activeMidiNotesRef.current.push(midiNum);
@@ -622,8 +624,7 @@ export function useSongPlayback(
         } catch (midiErr) {
           console.warn("Track MIDI Output send error:", midiErr);
         }
-      }
-      return;
+
     } catch (e) {
       console.error("Track note playback error:", e);
     }
