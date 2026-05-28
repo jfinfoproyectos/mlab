@@ -318,7 +318,7 @@ export async function saveSongAction(songData: SongStructure) {
     // Ensure tempo is stored as a valid integer
     const tempoInt = songData.tempo ? Math.round(songData.tempo) : null;
 
-    if (songData.id) {
+    if (songData.id && !songData.id.startsWith("temp-")) {
       // Security: verify this song belongs to the current user before updating
       const existing = await prisma.song.findFirst({
         where: { id: songData.id, userId },

@@ -126,11 +126,15 @@ const saveLocalSong = (song: SongStructure): void => {
   if (typeof window === "undefined") return;
   try {
     const songs = getLocalSongs();
+    const songWithTime = {
+      ...song,
+      updatedAt: (song as any).updatedAt || new Date().toISOString()
+    };
     const idx = songs.findIndex((s) => s.id === song.id);
     if (idx !== -1) {
-      songs[idx] = song;
+      songs[idx] = songWithTime;
     } else {
-      songs.unshift(song);
+      songs.unshift(songWithTime);
     }
     localStorage.setItem("musiclab_local_songs", JSON.stringify(songs));
   } catch (e) {
@@ -1771,6 +1775,7 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
           dbSongs = res.songs.map(s => ({
             ...s.data,
             id: s.id, // ensure the DB id is always present
+            updatedAt: s.updatedAt, // keep database updatedAt to allow sorting!
           }));
         }
       } catch (dbError) {
@@ -1791,10 +1796,9 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         } else {
           const dbIndex = dbSongs.findIndex(s => s.id === localSong.id);
           if (dbIndex === -1) {
-            if (!dbSuccess) {
+            // Preserve local song to prevent data loss due to caching or replication lag
+            if (!merged.some(s => s.id === localSong.id)) {
               merged.push(localSong);
-            } else {
-              deleteLocalSong(localSong.id);
             }
           } else {
             saveLocalSong(dbSongs[dbIndex]);
@@ -1802,8 +1806,21 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
         }
       }
 
-      // Sort by updatedAt or default to order
-      setSavedSongs(merged);
+      // Sort by updatedAt in descending order (newest/most recently saved first)
+      const sorted = [...merged].sort((a: any, b: any) => {
+        const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        
+        if (dateA === 0 && dateB === 0) {
+          const timeA = a.id?.startsWith("temp-") ? parseInt(a.id.split("-")[1]) || 0 : 0;
+          const timeB = b.id?.startsWith("temp-") ? parseInt(b.id.split("-")[1]) || 0 : 0;
+          return timeB - timeA;
+        }
+        
+        return dateB - dateA;
+      });
+
+      setSavedSongs(sorted);
 
       // Auto-sync local-only songs if DB is back online
       if (dbSuccess && localSongs.some(s => s.id?.startsWith("temp-"))) {
@@ -3811,9 +3828,15 @@ export function SongGeneratorInner({ initialConfigs = [] }: SongGeneratorProps) 
                               {activeSong.genre}
                             </span>
                             {activeSong.id && (
-                              <span className="text-[9px] font-mono font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                Sincronizada con DB
-                              </span>
+                              activeSong.id.startsWith("temp-") ? (
+                                <span className="text-[9px] font-mono font-bold text-amber-600 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20" title="Guardada localmente en tu navegador. Se guardará en la base de datos al reconectarse.">
+                                  Local
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-mono font-bold text-emerald-600 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                                  Sincronizada con DB
+                                </span>
+                              )
                             )}
                           </div>
                           

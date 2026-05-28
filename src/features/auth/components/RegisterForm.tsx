@@ -22,7 +22,7 @@ export const RegisterForm = () => {
         email,
         password,
         name,
-        callbackURL: "/",
+        callbackURL: "/dashboard",
       });
 
       if (error) {

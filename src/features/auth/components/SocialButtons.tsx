@@ -11,7 +11,7 @@ export const SocialButtons = () => {
     try {
       await signIn.social({
         provider,
-        callbackURL: "/",
+        callbackURL: "/dashboard",
       });
     } catch (error) {
       console.error(error);

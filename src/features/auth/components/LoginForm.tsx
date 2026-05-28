@@ -20,7 +20,7 @@ export const LoginForm = () => {
       const { error } = await signIn.email({
         email,
         password,
-        callbackURL: "/",
+        callbackURL: "/dashboard",
       });
 
       if (error) {
